@@ -49,7 +49,7 @@ ENV LAMMPS_POTENTIALS=/usr/share/lammps/potentials
 ENV MSI2LMP_LIBRARY=/usr/share/lammps/frc_files
 
 RUN apt-get update -y
-RUN apt-get -y install software-properties-common --no-install-recommends
+RUN apt-get -y install software-properties-common gpg-agent --no-install-recommends
 RUN add-apt-repository -y ppa:openkim/latest
 RUN apt-get update -y && \
     apt-get upgrade -y && \
