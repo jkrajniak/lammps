@@ -1,11 +1,11 @@
-FROM lammps/buildenv:centos7 as builder
+FROM lammps/buildenv:ubuntu22.04 as builder
 MAINTAINER richard.berger@outlook.com
 
-ADD . /tmp/lammps
+ADD . /tmp/lammps/
 
 RUN mkdir -p /tmp/lammps/build-serial && \
     cd /tmp/lammps/build-serial && \
-    cmake3 -C /tmp/lammps/cmake/presets/most.cmake \
+    cmake -C /tmp/lammps/cmake/presets/most.cmake \
           -D CMAKE_BUILD_TYPE=Release \
           -D CMAKE_INSTALL_PREFIX=/usr \
           -D CMAKE_INSTALL_SYSCONFDIR=/etc \
@@ -21,64 +21,86 @@ RUN mkdir -p /tmp/lammps/build-serial && \
     make install && \
     tar czvf /tmp/lammps-serial.tgz -T install_manifest.txt
 
-ENV PATH=/usr/lib64/openmpi/bin${PATH:+:}${PATH}
-ENV LD_LIBRARY_PATH=/usr/lib64/openmpi/lib${LD_LIBRARY_PATH:+:}${LD_LIBRARY_PATH}
-
 RUN mkdir -p /tmp/lammps/build-openmpi && \
     cd /tmp/lammps/build-openmpi && \
-    cmake3 -C /tmp/lammps/cmake/presets/most.cmake \
+    cmake -C /tmp/lammps/cmake/presets/most.cmake \
           -D CMAKE_BUILD_TYPE=Release \
           -D CMAKE_INSTALL_PREFIX=/usr \
           -D CMAKE_INSTALL_SYSCONFDIR=/etc \
           -D LAMMPS_MACHINE=mpi \
-          -D BUILD_MPI=on \
           -D LAMMPS_EXCEPTIONS=on \
           -D BUILD_TOOLS=on \
           -D BUILD_SHARED_LIBS=on \
+          -D PKG_USER-PLUMED=off \
           -D Python_EXECUTABLE=/usr/bin/python3 \
           /tmp/lammps/cmake && \
     make -j 8 && \
     make install && \
     tar czvf /tmp/lammps-mpi.tgz -T install_manifest.txt
 
-FROM centos:7
+# determine binary depedencies
+#RUN apt update && apt install -y apt-file && apt-file update && \\
+#    ldd /tmp/lammps/build-openmpi/lmp_mpi | awk '/=>/{print $(NF-1)}' | while read n; do apt-file search $n; done | awk '{print $1}' | sed 's/://' | sort | uniq
+
+FROM ubuntu:22.04
 MAINTAINER richard.berger@outlook.com
-RUN useradd -m lammps
-RUN yum update -y && yum install -y epel-release && yum -y install \
-                   Lmod \
-                   blas \
-                   fftw \
-                   gdb \
-                   gsl \
-                   hdf5 \
-                   kim-api-devel \
-                   lapack \
-                   libjpeg \
-                   libpng \
-                   libyaml \
-                   libzstd \
-                   mpich \
-                   netcdf-cxx \
-                   netcdf \
-                   netcdf-mpich \
-                   netcdf-openmpi \
-                   ninja-build \
-                   openblas \
-                   openkim-models \
-                   openmpi \
-                   patch \
-                   python3 \
-                   python3-PyYAML \
-                   python3-devel \
-                   python3-pip \
-                   python3-venv \
-                   readline \
-                   valgrind-openmpi \
-                   vim-enhanced \
-                   voro++ \
-                   which \
-                   zstd && \
-    yum clean -y all
+ENV DEBIAN_FRONTEND noninteractive
+ENV LAMMPS_POTENTIALS=/usr/share/lammps/potentials
+ENV MSI2LMP_LIBRARY=/usr/share/lammps/frc_files
+
+RUN apt-get update -y
+RUN apt-get -y install software-properties-common --no-install-recommends
+RUN add-apt-repository -y ppa:openkim/latest
+RUN apt-get update -y && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        openmpi-bin \
+        python3 \
+        liblapack3 \
+        python3-venv \
+        libkim-api-dev \
+        openkim-models \
+        libpython3.6 \
+        hdf5-tools \
+        ffmpeg \
+        less \
+        libc6 \
+        libevent-2.1-7 \
+        libevent-pthreads-2.1-7 \
+        libexpat1 \
+        libfftw3-double3 \
+        libgcc-s1 \
+        libgomp1 \
+        libhwloc15 \
+        libjpeg-turbo8 \
+        libcurl4-gnutls-dev \
+        libcurl3-gnutls \
+        libltdl7 \
+        libopenmpi3 \
+        libpng16-16 \
+        libpython3.8 \
+        libstdc++6 \
+        libudev1 \
+        libvoro++1 \
+        libzstd1 \
+        zlib1g \
+        libreadline8 \
+        mpi-default-bin \
+        python3-dev \
+        python3-pip \
+        python3-pkg-resources \
+        python3-setuptools \
+        rsync \
+        ssh \
+        vim-nox \
+        valgrind \
+        gdb \
+        zstd \
+        libkim-api-dev \
+        openkim-models && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m lammps && usermod -aG rdma lammps
 COPY --from=builder /tmp/lammps-serial.tgz /tmp/
 COPY --from=builder /tmp/lammps-mpi.tgz /tmp/
 RUN tar -xvzf /tmp/lammps-serial.tgz -C / && rm -f /tmp/lammps-serial.tgz
@@ -91,9 +113,6 @@ COPY --from=builder /tmp/lammps/python /tmp/lammps/python
 COPY --from=builder /tmp/lammps/src/version.h /tmp/lammps/src/version.h
 RUN cd /tmp/lammps/python && python3 setup.py install && cd && rm -rf /tmp/lammps
 
-ENV LAMMPS_POTENTIALS=/usr/share/lammps/potentials
-ENV PATH=/usr/lib64/openmpi/bin${PATH:+:}${PATH}
-ENV LD_LIBRARY_PATH=/usr/lib64/openmpi/lib${LD_LIBRARY_PATH:+:}${LD_LIBRARY_PATH}
 USER lammps
 WORKDIR /home/lammps
 CMD /usr/bin/lmp_mpi
