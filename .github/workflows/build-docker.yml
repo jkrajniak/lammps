@@ -33,6 +33,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: jkrajniak/test-repo:latest
+          tags: jkrajniak/lammps:${{ github.ref == 'refs/heads/master' && 'latest' || github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
