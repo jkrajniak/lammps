@@ -1,7 +1,7 @@
 FROM lammps/buildenv:centos7 as builder
 MAINTAINER richard.berger@outlook.com
 
-ADD lammps /tmp/lammps
+ADD . /tmp/lammps
 
 RUN mkdir -p /tmp/lammps/build-serial && \
     cd /tmp/lammps/build-serial && \
