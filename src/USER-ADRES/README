@@ -1,0 +1,41 @@
+USER-ADRES package
+==================
+
+This package implements the Adaptive Resolution (AdRes) method for LAMMPS,
+enabling hybrid molecular dynamics simulations where molecules can transition
+between atomistic (fine-grained) and coarse-grained (CG) resolution regions.
+
+Contents
+--------
+
+The package provides the following commands:
+
+* fix adres/thermo - Applies thermodynamic corrections (thermodynamic force)
+* fix adres/region - Manages resolution regions and transitions
+* pair adres - Handles hybrid pair interactions
+* compute adres/stats - Provides diagnostics and statistics
+
+Installation
+------------
+
+This package is installed by default. To include it in your LAMMPS build:
+
+Traditional make:
+  make yes-adres
+
+CMake:
+  -D PKG_ADRES=on
+
+Authors
+-------
+
+This package implements the Adaptive Resolution Scheme (AdResS) method for
+hybrid atomistic/coarse-grained molecular dynamics simulations.
+
+References
+----------
+
+The AdRes method allows molecules to smoothly transition between different
+resolution levels, maintaining proper thermodynamics through the application
+of thermodynamic forces in transition regions.
+

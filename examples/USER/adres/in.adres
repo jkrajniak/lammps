@@ -1,0 +1,40 @@
+# Example AdRes simulation input script
+# This demonstrates basic usage of the AdRes package
+
+units           real
+atom_style      atomic
+dimension       3
+boundary        p p p
+
+# Create simulation box
+region          box block -20.0 20.0 -10.0 10.0 -10.0 10.0
+create_box      1 box
+
+# Define AdRes regions
+region          atomistic block -10.0 10.0 -10.0 10.0 -10.0 10.0
+region          transition block -12.0 -10.0 -10.0 10.0 -10.0 10.0
+region          cg block -20.0 -12.0 -10.0 10.0 -10.0 10.0
+
+# Create atoms (placeholder - would use read_data or create_atoms)
+# read_data      data.adres
+
+# Pair interactions
+pair_style      adres 10.0
+pair_coeff      * * 10.0
+
+# AdRes fixes
+fix             1 all adres/region atomistic transition cg
+fix             2 all adres/thermo transition 2.0 fix 1
+
+# Integration
+fix             3 all nve
+
+# Output
+compute         1 all adres/stats 1
+thermo_style    custom step temp pe ke c_1[1] c_1[2] c_1[3]
+thermo          100
+
+# Run
+timestep        0.001
+run             1000
+
