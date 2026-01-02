@@ -11,43 +11,33 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
-#ifdef FIX_CLASS
+#ifdef COMPUTE_CLASS
 // clang-format off
-FixStyle(adres/thermo,FixAdResThermo);
+ComputeStyle(adress/stats,ComputeAdResSStats);
 // clang-format on
 #else
 
-#ifndef LMP_FIX_ADRES_THERMO_H
-#define LMP_FIX_ADRES_THERMO_H
+#ifndef LMP_COMPUTE_ADRESS_STATS_H
+#define LMP_COMPUTE_ADRESS_STATS_H
 
-#include "fix.h"
+#include "compute.h"
 
 namespace LAMMPS_NS {
 
-class FixAdResThermo : public Fix {
+class ComputeAdResSStats : public Compute {
  public:
-  FixAdResThermo(class LAMMPS *, int, char **);
-  ~FixAdResThermo() override;
-  int setmask() override;
+  ComputeAdResSStats(class LAMMPS *, int, char **);
+  ~ComputeAdResStats() override;
   void init() override;
-  void setup(int) override;
-  void post_force(int) override;
-  void post_force_respa(int, int, int) override;
-  double memory_usage() override;
+  void compute_vector() override;
 
  private:
-  char *id_region;
   char *id_fix_region;
-  class Region *region;
-  class FixAdResRegion *fix_region;
+  class FixAdResSRegion *fix_region;
 
-  double transition_width;
-  double kT;                    // temperature in energy units
-  double **thermo_force;        // per-atom thermodynamic force
-  int maxatom;
-
-  void calculate_thermodynamic_force();
-  double calculate_density_gradient(int);
+  int nregions;
+  int *natoms_region;
+  int *nlocal_region;
 };
 
 }    // namespace LAMMPS_NS

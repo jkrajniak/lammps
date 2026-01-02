@@ -13,20 +13,20 @@
 
 #ifdef PAIR_CLASS
 // clang-format off
-PairStyle(adres,PairAdRes);
+PairStyle(adress,PairAdResS);
 // clang-format on
 #else
 
-#ifndef LMP_PAIR_ADRES_H
-#define LMP_PAIR_ADRES_H
+#ifndef LMP_PAIR_ADRESS_H
+#define LMP_PAIR_ADRESS_H
 
 #include "pair.h"
 
 namespace LAMMPS_NS {
 
-class PairAdRes : public Pair {
+class PairAdResS : public Pair {
  public:
-  PairAdRes(class LAMMPS *);
+  PairAdResS(class LAMMPS *);
   ~PairAdRes() override;
   void compute(int, int) override;
   void settings(int, char **) override;
@@ -44,7 +44,7 @@ class PairAdRes : public Pair {
   double cut_global;
   double **cut;
   char *id_fix_region;
-  class FixAdResRegion *fix_region;
+  class FixAdResSRegion *fix_region;
 
   virtual void allocate();
   double switching_function(double, double, double);

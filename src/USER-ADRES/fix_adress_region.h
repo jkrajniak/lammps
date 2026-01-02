@@ -13,21 +13,21 @@
 
 #ifdef FIX_CLASS
 // clang-format off
-FixStyle(adres/region,FixAdResRegion);
+FixStyle(adress/region,FixAdResSRegion);
 // clang-format on
 #else
 
-#ifndef LMP_FIX_ADRES_REGION_H
-#define LMP_FIX_ADRES_REGION_H
+#ifndef LMP_FIX_ADRESS_REGION_H
+#define LMP_FIX_ADRESS_REGION_H
 
 #include "fix.h"
 
 namespace LAMMPS_NS {
 
-class FixAdResRegion : public Fix {
+class FixAdResSRegion : public Fix {
  public:
-  FixAdResRegion(class LAMMPS *, int, char **);
-  ~FixAdResRegion() override;
+  FixAdResSRegion(class LAMMPS *, int, char **);
+  ~FixAdResSRegion() override;
   int setmask() override;
   void init() override;
   void setup(int) override;
@@ -58,11 +58,18 @@ class FixAdResRegion : public Fix {
   double *lambda;         // per-atom lambda value [0,1] for transition region
   int maxatom;
 
+  int transition_axis;    // 0=x, 1=y, 2=z
+  double cg_boundary;     // CG region boundary along transition axis
+  double at_boundary;     // Atomistic region boundary along transition axis
+  double transition_width; // Width of transition region along axis
+
   enum { RES_ATOMISTIC = 0, RES_TRANSITION = 1, RES_CG = 2 };
 
   void update_resolution();
   int determine_region(double, double, double);
   double calculate_lambda(double, double, double);
+  void calculate_boundaries();
+  double get_boundary_coordinate(class Region *reg, int axis);
 };
 
 }    // namespace LAMMPS_NS

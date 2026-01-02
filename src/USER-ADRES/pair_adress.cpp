@@ -16,7 +16,7 @@
 #include "atom.h"
 #include "comm.h"
 #include "error.h"
-#include "fix_adres_region.h"
+#include "fix_adress_region.h"
 #include "force.h"
 #include "memory.h"
 #include "modify.h"
@@ -32,7 +32,7 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-PairAdRes::PairAdRes(LAMMPS *lmp) : Pair(lmp), cut_global(0.0), cut(nullptr),
+PairAdResS::PairAdRes(LAMMPS *lmp) : Pair(lmp), cut_global(0.0), cut(nullptr),
     id_fix_region(nullptr), fix_region(nullptr)
 {
   restartinfo = 1;
@@ -42,7 +42,7 @@ PairAdRes::PairAdRes(LAMMPS *lmp) : Pair(lmp), cut_global(0.0), cut(nullptr),
 
 /* ---------------------------------------------------------------------- */
 
-PairAdRes::~PairAdRes()
+PairAdResS::~PairAdRes()
 {
   if (allocated) {
     memory->destroy(setflag);
@@ -54,7 +54,7 @@ PairAdRes::~PairAdRes()
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::compute(int eflag, int vflag)
+void PairAdResS::compute(int eflag, int vflag)
 {
   int i, j, ii, jj, inum, jnum, itype, jtype;
   double xtmp, ytmp, ztmp, delx, dely, delz, evdwl, fpair;
@@ -77,8 +77,8 @@ void PairAdRes::compute(int eflag, int vflag)
 
   // get fix adres/region if available
   if (id_fix_region && !fix_region) {
-    fix_region = dynamic_cast<FixAdResRegion *>(modify->get_fix_by_id(id_fix_region));
-    if (!fix_region) error->all(FLERR, "Fix {} for pair adres does not exist", id_fix_region);
+    fix_region = dynamic_cast<FixAdResSRegion *>(modify->get_fix_by_id(id_fix_region));
+    if (!fix_region) error->all(FLERR, "Fix {} for pair adress does not exist", id_fix_region);
   }
 
   // loop over neighbors of my atoms
@@ -152,7 +152,7 @@ void PairAdRes::compute(int eflag, int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::settings(int narg, char **arg)
+void PairAdResS::settings(int narg, char **arg)
 {
   if (narg != 1) error->all(FLERR, "Illegal pair_style command");
 
@@ -162,7 +162,7 @@ void PairAdRes::settings(int narg, char **arg)
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::coeff(int narg, char **arg)
+void PairAdResS::coeff(int narg, char **arg)
 {
   if (narg < 2 || narg > 4) error->all(FLERR, "Incorrect args for pair coefficients");
 
@@ -195,21 +195,21 @@ void PairAdRes::coeff(int narg, char **arg)
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::init_style()
+void PairAdResS::init_style()
 {
   // request regular neighbor list
   neighbor->add_request(this);
 
   // look for fix adres/region
   if (id_fix_region) {
-    fix_region = dynamic_cast<FixAdResRegion *>(modify->get_fix_by_id(id_fix_region));
-    if (!fix_region) error->all(FLERR, "Fix {} for pair adres does not exist", id_fix_region);
+    fix_region = dynamic_cast<FixAdResSRegion *>(modify->get_fix_by_id(id_fix_region));
+    if (!fix_region) error->all(FLERR, "Fix {} for pair adress does not exist", id_fix_region);
   }
 }
 
 /* ---------------------------------------------------------------------- */
 
-double PairAdRes::init_one(int i, int j)
+double PairAdResS::init_one(int i, int j)
 {
   if (setflag[i][j] == 0) {
     if (cut[i][i] > 0.0 && cut[j][j] > 0.0)
@@ -228,7 +228,7 @@ double PairAdRes::init_one(int i, int j)
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::allocate()
+void PairAdResS::allocate()
 {
   allocated = 1;
   int n = atom->ntypes;
@@ -243,7 +243,7 @@ void PairAdRes::allocate()
 
 /* ---------------------------------------------------------------------- */
 
-double PairAdRes::switching_function(double r, double rcut, double lambda)
+double PairAdResS::switching_function(double r, double rcut, double lambda)
 {
   // Linear switching function based on lambda
   // lambda = 1: full atomistic, lambda = 0: full CG
@@ -254,7 +254,7 @@ double PairAdRes::switching_function(double r, double rcut, double lambda)
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::write_restart(FILE *fp)
+void PairAdResS::write_restart(FILE *fp)
 {
   write_restart_settings(fp);
 
@@ -268,7 +268,7 @@ void PairAdRes::write_restart(FILE *fp)
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::read_restart(FILE *fp)
+void PairAdResS::read_restart(FILE *fp)
 {
   read_restart_settings(fp);
   allocate();
@@ -288,7 +288,7 @@ void PairAdRes::read_restart(FILE *fp)
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::write_restart_settings(FILE *fp)
+void PairAdResS::write_restart_settings(FILE *fp)
 {
   fwrite(&cut_global, sizeof(double), 1, fp);
   fwrite(&mix_flag, sizeof(int), 1, fp);
@@ -296,7 +296,7 @@ void PairAdRes::write_restart_settings(FILE *fp)
 
 /* ---------------------------------------------------------------------- */
 
-void PairAdRes::read_restart_settings(FILE *fp)
+void PairAdResS::read_restart_settings(FILE *fp)
 {
   if (comm->me == 0) {
     utils::sfread(FLERR, &cut_global, sizeof(double), 1, fp, nullptr, error);
@@ -308,7 +308,7 @@ void PairAdRes::read_restart_settings(FILE *fp)
 
 /* ---------------------------------------------------------------------- */
 
-double PairAdRes::single(int /*i*/, int /*j*/, int itype, int jtype, double rsq,
+double PairAdResS::single(int /*i*/, int /*j*/, int itype, int jtype, double rsq,
                          double /*factor_coul*/, double factor_lj, double &fforce)
 {
   double r = sqrt(rsq);
@@ -320,7 +320,7 @@ double PairAdRes::single(int /*i*/, int /*j*/, int itype, int jtype, double rsq,
 
 /* ---------------------------------------------------------------------- */
 
-void *PairAdRes::extract(const char *str, int &dim)
+void *PairAdResS::extract(const char *str, int &dim)
 {
   dim = 0;
   if (strcmp(str, "cut") == 0) {

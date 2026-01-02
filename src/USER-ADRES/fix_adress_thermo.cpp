@@ -11,12 +11,12 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
-#include "fix_adres_thermo.h"
+#include "fix_adress_thermo.h"
 
 #include "atom.h"
 #include "domain.h"
 #include "error.h"
-#include "fix_adres_region.h"
+#include "fix_adress_region.h"
 #include "force.h"
 #include "memory.h"
 #include "modify.h"
@@ -34,11 +34,11 @@ using namespace FixConst;
 
 /* ---------------------------------------------------------------------- */
 
-FixAdResThermo::FixAdResThermo(LAMMPS *lmp, int narg, char **arg) :
+FixAdResSThermo::FixAdResThermo(LAMMPS *lmp, int narg, char **arg) :
     Fix(lmp, narg, arg), id_region(nullptr), id_fix_region(nullptr), region(nullptr),
     fix_region(nullptr), transition_width(0.0), kT(0.0), thermo_force(nullptr), maxatom(0)
 {
-  if (narg < 5) utils::missing_cmd_args(FLERR, "fix adres/thermo", error);
+  if (narg < 5) utils::missing_cmd_args(FLERR, "fix adress/thermo", error);
 
   id_region = utils::strdup(arg[3]);
   transition_width = utils::numeric(FLERR, arg[4], false, lmp);
@@ -50,21 +50,21 @@ FixAdResThermo::FixAdResThermo(LAMMPS *lmp, int narg, char **arg) :
   int iarg = 5;
   while (iarg < narg) {
     if (strcmp(arg[iarg], "fix") == 0) {
-      if (iarg + 2 > narg) utils::missing_cmd_args(FLERR, "fix adres/thermo fix", error);
+      if (iarg + 2 > narg) utils::missing_cmd_args(FLERR, "fix adress/thermo fix", error);
       id_fix_region = utils::strdup(arg[iarg + 1]);
       iarg += 2;
     } else
-      error->all(FLERR, "Unknown fix adres/thermo keyword: {}", arg[iarg]);
+      error->all(FLERR, "Unknown fix adress/thermo keyword: {}", arg[iarg]);
   }
 
   // allocate per-atom array for thermodynamic force
   maxatom = atom->nmax;
-  memory->create(thermo_force, maxatom, 3, "adres/thermo:thermo_force");
+  memory->create(thermo_force, maxatom, 3, "adress/thermo:thermo_force");
 }
 
 /* ---------------------------------------------------------------------- */
 
-FixAdResThermo::~FixAdResThermo()
+FixAdResSThermo::~FixAdResThermo()
 {
   delete[] id_region;
   delete[] id_fix_region;
@@ -73,7 +73,7 @@ FixAdResThermo::~FixAdResThermo()
 
 /* ---------------------------------------------------------------------- */
 
-int FixAdResThermo::setmask()
+int FixAdResSThermo::setmask()
 {
   int mask = 0;
   mask |= POST_FORCE;
@@ -83,17 +83,17 @@ int FixAdResThermo::setmask()
 
 /* ---------------------------------------------------------------------- */
 
-void FixAdResThermo::init()
+void FixAdResSThermo::init()
 {
   // get region pointer
   region = domain->get_region_by_id(id_region);
-  if (!region) error->all(FLERR, "Region {} for fix adres/thermo does not exist", id_region);
+  if (!region) error->all(FLERR, "Region {} for fix adress/thermo does not exist", id_region);
 
   // get fix adres/region pointer if specified
   if (id_fix_region) {
-    fix_region = dynamic_cast<FixAdResRegion *>(modify->get_fix_by_id(id_fix_region));
+    fix_region = dynamic_cast<FixAdResSRegion *>(modify->get_fix_by_id(id_fix_region));
     if (!fix_region)
-      error->all(FLERR, "Fix {} for fix adres/thermo does not exist", id_fix_region);
+      error->all(FLERR, "Fix {} for fix adress/thermo does not exist", id_fix_region);
   }
 
   // get temperature from compute
@@ -103,7 +103,7 @@ void FixAdResThermo::init()
 
 /* ---------------------------------------------------------------------- */
 
-void FixAdResThermo::setup(int vflag)
+void FixAdResSThermo::setup(int vflag)
 {
   if (utils::strmatch(update->integrate_style, "^verlet"))
     post_force(vflag);
@@ -119,7 +119,7 @@ void FixAdResThermo::setup(int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void FixAdResThermo::post_force(int /*vflag*/)
+void FixAdResSThermo::post_force(int /*vflag*/)
 {
   double **x = atom->x;
   double **f = atom->f;
@@ -133,7 +133,7 @@ void FixAdResThermo::post_force(int /*vflag*/)
   if (atom->nmax > maxatom) {
     maxatom = atom->nmax;
     memory->destroy(thermo_force);
-    memory->create(thermo_force, maxatom, 3, "adres/thermo:thermo_force");
+    memory->create(thermo_force, maxatom, 3, "adress/thermo:thermo_force");
   }
 
   // zero thermodynamic force array
@@ -160,14 +160,14 @@ void FixAdResThermo::post_force(int /*vflag*/)
 
 /* ---------------------------------------------------------------------- */
 
-void FixAdResThermo::post_force_respa(int vflag, int ilevel, int /*iloop*/)
+void FixAdResSThermo::post_force_respa(int vflag, int ilevel, int /*iloop*/)
 {
   if (ilevel == 0) post_force(vflag);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixAdResThermo::calculate_thermodynamic_force()
+void FixAdResSThermo::calculate_thermodynamic_force()
 {
   double **x = atom->x;
   int *mask = atom->mask;
@@ -208,7 +208,7 @@ void FixAdResThermo::calculate_thermodynamic_force()
 
 /* ---------------------------------------------------------------------- */
 
-double FixAdResThermo::calculate_density_gradient(int i)
+double FixAdResSThermo::calculate_density_gradient(int i)
 {
   // Placeholder for density gradient calculation
   // In full implementation, would calculate local density
@@ -218,7 +218,7 @@ double FixAdResThermo::calculate_density_gradient(int i)
 
 /* ---------------------------------------------------------------------- */
 
-double FixAdResThermo::memory_usage()
+double FixAdResSThermo::memory_usage()
 {
   double bytes = 0.0;
   bytes += (double) maxatom * 3 * sizeof(double);    // thermo_force

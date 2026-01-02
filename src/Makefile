@@ -115,7 +115,7 @@ PACKAGE = \
 	dielectric \
 	ml-iap \
 	phonon \
-	adres
+	adress
 
 # NOTE: the last four packages must remain at the end since
 # they depend on other packages to be installed first.

@@ -15,7 +15,7 @@
 
 #include "atom.h"
 #include "error.h"
-#include "fix_adres_region.h"
+#include "fix_adress_region.h"
 #include "memory.h"
 #include "modify.h"
 #include "update.h"
@@ -27,11 +27,11 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-ComputeAdResStats::ComputeAdResStats(LAMMPS *lmp, int narg, char **arg) :
+ComputeAdResSStats::ComputeAdResStats(LAMMPS *lmp, int narg, char **arg) :
     Compute(lmp, narg, arg), id_fix_region(nullptr), fix_region(nullptr), nregions(3),
     natoms_region(nullptr), nlocal_region(nullptr)
 {
-  if (narg < 4) utils::missing_cmd_args(FLERR, "compute adres/stats", error);
+  if (narg < 4) utils::missing_cmd_args(FLERR, "compute adress/stats", error);
 
   vector_flag = 1;
   size_vector = 3;    // atomistic, transition, CG
@@ -48,7 +48,7 @@ ComputeAdResStats::ComputeAdResStats(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-ComputeAdResStats::~ComputeAdResStats()
+ComputeAdResSStats::~ComputeAdResStats()
 {
   delete[] id_fix_region;
   memory->destroy(natoms_region);
@@ -58,16 +58,16 @@ ComputeAdResStats::~ComputeAdResStats()
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeAdResStats::init()
+void ComputeAdResSStats::init()
 {
   // get fix adres/region pointer
-  fix_region = dynamic_cast<FixAdResRegion *>(modify->get_fix_by_id(id_fix_region));
-  if (!fix_region) error->all(FLERR, "Fix {} for compute adres/stats does not exist", id_fix_region);
+  fix_region = dynamic_cast<FixAdResSRegion *>(modify->get_fix_by_id(id_fix_region));
+  if (!fix_region) error->all(FLERR, "Fix {} for compute adress/stats does not exist", id_fix_region);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeAdResStats::compute_vector()
+void ComputeAdResSStats::compute_vector()
 {
   int *mask = atom->mask;
   int nlocal = atom->nlocal;

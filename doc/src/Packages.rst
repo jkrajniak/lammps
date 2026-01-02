@@ -68,9 +68,9 @@ whether an extra library is needed to build and use the package:
      - :doc:`dump adios <dump_adios>`
      - ``PACKAGES/adios``
      - ext
-   * - :ref:`ADRES <PKG-ADRES>`
-     - Adaptive Resolution method
-     - :doc:`fix adres/region <fix_adres_region>`
+   * - :ref:`ADRESS <PKG-ADRESS>`
+     - Adaptive Resolution Scheme
+     - :doc:`fix adress/region <fix_adress_region>`
      - ``USER/adres``
      - no
    * - :ref:`AMOEBA <PKG-AMOEBA>`

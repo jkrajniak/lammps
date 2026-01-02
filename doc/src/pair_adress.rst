@@ -1,6 +1,6 @@
 .. index:: pair adres
 
-pair_style adres command
+pair_style adress command
 ========================
 
 Syntax
@@ -8,9 +8,9 @@ Syntax
 
 .. code-block:: LAMMPS
 
-   pair_style adres cutoff
+   pair_style adress cutoff
 
-* adres = style name of this pair style
+* adress = style name of this pair style
 * cutoff = global cutoff for interactions (distance units)
 
 .. code-block:: LAMMPS
@@ -19,25 +19,25 @@ Syntax
 
 * N, M = atom types (see :doc:`pair_coeff <pair_coeff>`)
 * cutoff = cutoff for this type pair (distance units)
-* fix-ID = ID of fix adres/region command (optional)
+* fix-ID = ID of fix adress/region command (optional)
 
 Examples
 """"""""
 
 .. code-block:: LAMMPS
 
-   pair_style adres 10.0
+   pair_style adress 10.0
    pair_coeff * * 10.0 adres_region
 
 Description
 """""""""""
 
 The *adres* pair style implements hybrid interactions for Adaptive
-Resolution (AdRes) simulations. It applies switching functions based
-on the lambda parameter from :doc:`fix adres/region <fix_adres_region>`
+Resolution (AdResS) simulations. It applies switching functions based
+on the lambda parameter from :doc:`fix adress/region <fix_adres_region>`
 to smoothly transition between atomistic and coarse-grained interactions.
 
-The pair style uses the lambda values from the fix adres/region command
+The pair style uses the lambda values from the fix adress/region command
 to determine how to weight interactions. For pairs of atoms, the effective
 lambda is the average of the two atoms' lambda values.
 
@@ -54,15 +54,15 @@ corrections. It does support restart and rRESPA.
 Restrictions
 """"""""""""
 
-This pair style is part of the USER-ADRES package. It is only enabled
+This pair style is part of the USER-ADRESS package. It is only enabled
 if LAMMPS was built with that package. See the :doc:`Build package
 <Build_package>` page for more info.
 
 Related commands
 """"""""""""""""
 
-:doc:`fix adres/region <fix_adres_region>`, :doc:`fix adres/thermo <fix_adres_thermo>`,
-:doc:`compute adres/stats <compute_adres_stats>`
+:doc:`fix adress/region <fix_adres_region>`, :doc:`fix adress/thermo <fix_adres_thermo>`,
+:doc:`compute adress/stats <compute_adres_stats>`
 
 Default
 """""""

@@ -27,7 +27,7 @@ gives those details.
    :columns: 6
 
    * :ref:`ADIOS <PKG-ADIOS>`
-   * :ref:`ADRES <PKG-ADRES>`
+   * :ref:`ADRESS <PKG-ADRESS>`
    * :ref:`AMOEBA <PKG-AMOEBA>`
    * :ref:`APIP <PKG-APIP>`
    * :ref:`ASPHERE <PKG-ASPHERE>`
@@ -153,14 +153,14 @@ This package has :ref:`specific installation instructions <adios>` on the :doc:`
 
 ----------
 
-.. _PKG-ADRES:
+.. _PKG-ADRESS:
 
-ADRES package
--------------
+ADRESS package
+--------------
 
 **Contents:**
 
-This package implements the Adaptive Resolution (AdRes) method for
+This package implements the Adaptive Resolution Scheme (AdResS) method for
 hybrid atomistic/coarse-grained molecular dynamics simulations. It
 provides fixes for region management and thermodynamic corrections,
 a pair style for hybrid interactions, and a compute for statistics.
@@ -168,10 +168,10 @@ a pair style for hybrid interactions, and a compute for statistics.
 **Supporting info:**
 
 * ``src/USER-ADRES``: filenames -> commands
-* :doc:`fix adres/region <fix_adres_region>`
-* :doc:`fix adres/thermo <fix_adres_thermo>`
-* :doc:`pair adres <pair_adres>`
-* :doc:`compute adres/stats <compute_adres_stats>`
+* :doc:`fix adress/region <fix_adress_region>`
+* :doc:`fix adress/thermo <fix_adress_thermo>`
+* :doc:`pair adress <pair_adress>`
+* :doc:`compute adress/stats <compute_adress_stats>`
 * ``examples/USER/adres``
 
 ----------

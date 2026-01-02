@@ -1,0 +1,51 @@
+# Simple test script for AdResS package
+# This creates a minimal system to test if the package compiles and runs
+
+units           lj
+atom_style      atomic
+dimension       3
+boundary        p p p
+
+# Create a simple box
+region          box block 0 20 0 10 0 10
+create_box      1 box
+
+# Create a simple lattice of atoms
+lattice         fcc 0.8442
+region          atoms block 0 20 0 10 0 10
+create_atoms    1 region atoms
+
+# Define AdResS regions
+region          atomistic block 8 12 0 10 0 10
+region          transition block 6 8 0 10 0 10
+region          cg block 0 6 0 10 0 10
+
+# Simple pair potential for testing
+mass            1 1.0
+pair_style      lj/cut 2.5
+pair_coeff      1 1 1.0 1.0 2.5
+
+# AdResS fixes - test if they can be created
+# Transition along x-axis (default)
+fix             1 all adress/region atomistic transition cg x
+fix             2 all adress/thermo transition 2.0 fix 1
+
+# Integration
+velocity        all create 1.0 87287
+fix             3 all nve
+
+# Output
+compute         1 all adress/stats 1
+thermo_style    custom step temp pe ke c_1[1] c_1[2] c_1[3]
+thermo          10
+
+# Run a short test
+timestep        0.005
+run             50
+
+# Print final status
+print "AdResS package test completed successfully!"
+print "Atomistic region atoms: $(c_1[1])"
+print "Transition region atoms: $(c_1[2])"
+print "CG region atoms: $(c_1[3])"
+
