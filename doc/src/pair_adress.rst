@@ -8,17 +8,22 @@ Syntax
 
 .. code-block:: LAMMPS
 
-   pair_style adress cutoff
+   pair_style adress cutoff atomistic_style atomistic_args ... cg_style cg_args ...
 
 * adress = style name of this pair style
 * cutoff = global cutoff for interactions (distance units)
+* atomistic_style = pair style for atomistic interactions (e.g., lj/cut)
+* atomistic_args = arguments for atomistic pair style
+* cg_style = pair style for coarse-grained interactions (e.g., lj/cut)
+* cg_args = arguments for CG pair style
 
 .. code-block:: LAMMPS
 
-   pair_coeff N M cutoff fix-ID
+   pair_coeff * * args ... fix fix-ID
 
-* N, M = atom types (see :doc:`pair_coeff <pair_coeff>`)
-* cutoff = cutoff for this type pair (distance units)
+* * * = wildcard for all atom types (see :doc:`pair_coeff <pair_coeff>`)
+* args = arguments for both atomistic and CG pair styles
+* fix = keyword to specify fix ID
 * fix-ID = ID of fix adress/region command (optional)
 
 Examples
@@ -26,24 +31,37 @@ Examples
 
 .. code-block:: LAMMPS
 
-   pair_style adress 10.0
-   pair_coeff * * 10.0 adres_region
+   # Atomistic: lj/cut with cutoff 2.5, CG: lj/cut with cutoff 5.0
+   pair_style adress 10.0 lj/cut 2.5 lj/cut 5.0
+   pair_coeff * * 1.0 1.0 2.5 fix adres_region
+
+   # Different pair styles for atomistic and CG
+   pair_style adress 10.0 lj/cut 2.5 lj/cut/coul/cut 5.0
+   pair_coeff * * 1.0 1.0 2.5 fix adres_region
 
 Description
 """""""""""
 
-The *adres* pair style implements hybrid interactions for Adaptive
-Resolution (AdResS) simulations. It applies switching functions based
-on the lambda parameter from :doc:`fix adress/region <fix_adres_region>`
-to smoothly transition between atomistic and coarse-grained interactions.
+The *adress* pair style implements hybrid interactions for Adaptive
+Resolution (AdResS) simulations. It interpolates between atomistic and
+coarse-grained pair interactions based on the lambda parameter from
+:doc:`fix adress/region <fix_adres_region>`.
 
-The pair style uses the lambda values from the fix adress/region command
-to determine how to weight interactions. For pairs of atoms, the effective
-lambda is the average of the two atoms' lambda values.
+The pair style requires two sub-styles:
+* **atomistic_style**: The pair style used for full atomistic interactions
+* **cg_style**: The pair style used for coarse-grained interactions
 
-The switching function linearly interpolates between full atomistic
-interactions (lambda = 1) and full CG interactions (lambda = 0) based
-on the lambda value.
+Forces are interpolated using the formula:
+:math:`F_i = \lambda_i \cdot F_{at,i} + (1 - \lambda_i) \cdot F_{cg,i}`
+
+Where:
+* :math:`\lambda_i` = lambda value for atom i (from fix adress/region)
+* :math:`F_{at,i}` = force on atom i from atomistic pair style
+* :math:`F_{cg,i}` = force on atom i from CG pair style
+
+The same coefficients are applied to both sub-styles via the
+:doc:`pair_coeff <pair_coeff>` command. The global cutoff should be
+set to the maximum of the atomistic and CG cutoffs.
 
 Mixing, shift, table, tail correction, restart, rRESPA info
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""

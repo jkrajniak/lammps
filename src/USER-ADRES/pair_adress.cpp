@@ -11,7 +11,7 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
-#include "pair_adres.h"
+#include "pair_adress.h"
 
 #include "atom.h"
 #include "comm.h"
@@ -22,6 +22,7 @@
 #include "modify.h"
 #include "neighbor.h"
 #include "neigh_list.h"
+#include "update.h"
 #include "utils.h"
 
 #include <cmath>
@@ -33,7 +34,9 @@ using namespace LAMMPS_NS;
 /* ---------------------------------------------------------------------- */
 
 PairAdResS::PairAdRes(LAMMPS *lmp) : Pair(lmp), cut_global(0.0), cut(nullptr),
-    id_fix_region(nullptr), fix_region(nullptr)
+    id_fix_region(nullptr), fix_region(nullptr), pair_atomistic(nullptr),
+    pair_cg(nullptr), style_atomistic(nullptr), style_cg(nullptr),
+    f_atomistic(nullptr), f_cg(nullptr), nmax_force(0)
 {
   restartinfo = 1;
   writedata = 1;
@@ -50,30 +53,21 @@ PairAdResS::~PairAdRes()
     memory->destroy(cut);
   }
   delete[] id_fix_region;
+  delete[] style_atomistic;
+  delete[] style_cg;
+  if (pair_atomistic) delete pair_atomistic;
+  if (pair_cg) delete pair_cg;
+  memory->destroy(f_atomistic);
+  memory->destroy(f_cg);
 }
 
 /* ---------------------------------------------------------------------- */
 
 void PairAdResS::compute(int eflag, int vflag)
 {
-  int i, j, ii, jj, inum, jnum, itype, jtype;
-  double xtmp, ytmp, ztmp, delx, dely, delz, evdwl, fpair;
-  double rsq, r, factor_lj;
-  int *ilist, *jlist, *numneigh, **firstneigh;
-
-  ev_init(eflag, vflag);
-
-  double **x = atom->x;
-  double **f = atom->f;
-  int *type = atom->type;
-  int nlocal = atom->nlocal;
-  double *special_lj = force->special_lj;
-  int newton_pair = force->newton_pair;
-
-  inum = list->inum;
-  ilist = list->ilist;
-  numneigh = list->numneigh;
-  firstneigh = list->firstneigh;
+  // Check that sub-styles are initialized
+  if (!pair_atomistic || !pair_cg)
+    error->all(FLERR, "Pair adress sub-styles not initialized");
 
   // get fix adres/region if available
   if (id_fix_region && !fix_region) {
@@ -81,68 +75,96 @@ void PairAdResS::compute(int eflag, int vflag)
     if (!fix_region) error->all(FLERR, "Fix {} for pair adress does not exist", id_fix_region);
   }
 
-  // loop over neighbors of my atoms
-  for (ii = 0; ii < inum; ii++) {
-    i = ilist[ii];
-    xtmp = x[i][0];
-    ytmp = x[i][1];
-    ztmp = x[i][2];
-    itype = type[i];
-    jlist = firstneigh[i];
-    jnum = numneigh[i];
+  // Allocate temporary force arrays if needed
+  const int nall = atom->nlocal + atom->nghost;
+  if (nall > nmax_force) {
+    memory->destroy(f_atomistic);
+    memory->destroy(f_cg);
+    nmax_force = atom->nmax;
+    memory->create(f_atomistic, nmax_force, 3, "pair_adress:f_atomistic");
+    memory->create(f_cg, nmax_force, 3, "pair_adress:f_cg");
+  }
 
-    for (jj = 0; jj < jnum; jj++) {
-      j = jlist[jj];
-      factor_lj = special_lj[sbmask(j)];
-      j &= NEIGHMASK;
+  // Save current forces
+  double **f = atom->f;
+  double **f_saved;
+  memory->create(f_saved, nall, 3, "pair_adress:f_saved");
+  for (int i = 0; i < nall; i++) {
+    f_saved[i][0] = f[i][0];
+    f_saved[i][1] = f[i][1];
+    f_saved[i][2] = f[i][2];
+  }
 
-      delx = xtmp - x[j][0];
-      dely = ytmp - x[j][1];
-      delz = ztmp - x[j][2];
-      rsq = delx * delx + dely * dely + delz * delz;
-      jtype = type[j];
+  // Zero forces for atomistic computation
+  for (int i = 0; i < nall; i++) {
+    f[i][0] = 0.0;
+    f[i][1] = 0.0;
+    f[i][2] = 0.0;
+  }
 
-      if (rsq < cutsq[itype][jtype]) {
-        r = sqrt(rsq);
+  // Compute atomistic forces
+  pair_atomistic->compute(eflag, vflag);
+  
+  // Save atomistic forces
+  for (int i = 0; i < nall; i++) {
+    f_atomistic[i][0] = f[i][0];
+    f_atomistic[i][1] = f[i][1];
+    f_atomistic[i][2] = f[i][2];
+  }
 
-        // Get lambda values for switching
-        double lambda_i = 1.0;
-        double lambda_j = 1.0;
-        if (fix_region) {
-          lambda_i = fix_region->get_lambda(i);
-          lambda_j = fix_region->get_lambda(j);
-        }
+  // Zero forces for CG computation
+  for (int i = 0; i < nall; i++) {
+    f[i][0] = 0.0;
+    f[i][1] = 0.0;
+    f[i][2] = 0.0;
+  }
 
-        // Calculate effective lambda for pair interaction
-        double lambda_ij = 0.5 * (lambda_i + lambda_j);
+  // Compute CG forces
+  pair_cg->compute(eflag, vflag);
 
-        // Apply switching function
-        double sw = switching_function(r, cut[itype][jtype], lambda_ij);
+  // Save CG forces
+  for (int i = 0; i < nall; i++) {
+    f_cg[i][0] = f[i][0];
+    f_cg[i][1] = f[i][1];
+    f_cg[i][2] = f[i][2];
+  }
 
-        // Calculate force (simplified - would use actual pair potential)
-        // This is a placeholder that applies switching
-        fpair = 0.0;
-        if (r > 0.0) {
-          // Simplified force calculation
-          double invr = 1.0 / r;
-          fpair = sw * invr * invr;    // placeholder force
-        }
+  // Interpolate forces based on lambda
+  interpolate_forces();
 
-        f[i][0] += delx * fpair;
-        f[i][1] += dely * fpair;
-        f[i][2] += delz * fpair;
-        if (newton_pair || j < nlocal) {
-          f[j][0] -= delx * fpair;
-          f[j][1] -= dely * fpair;
-          f[j][2] -= delz * fpair;
-        }
+  // Restore saved forces and add interpolated forces
+  for (int i = 0; i < nall; i++) {
+    f[i][0] = f_saved[i][0] + f[i][0];
+    f[i][1] = f_saved[i][1] + f[i][1];
+    f[i][2] = f_saved[i][2] + f[i][2];
+  }
 
+  memory->destroy(f_saved);
+
+  // Interpolate energies and virials
         if (eflag) {
-          evdwl = sw * 1.0;    // placeholder energy
-          evdwl *= factor_lj;
-        }
+    eng_vdwl = 0.0;
+    eng_coul = 0.0;
+    // Note: Energy interpolation would need per-atom lambda, simplified here
+    // For now, use average of atomistic and CG energies
+    if (fix_region) {
+      // Simplified: use average lambda for energy
+      double lambda_avg = 0.5;  // Could be improved with per-atom lambda
+      eng_vdwl = lambda_avg * pair_atomistic->eng_vdwl + (1.0 - lambda_avg) * pair_cg->eng_vdwl;
+      eng_coul = lambda_avg * pair_atomistic->eng_coul + (1.0 - lambda_avg) * pair_cg->eng_coul;
+    } else {
+      eng_vdwl = 0.5 * (pair_atomistic->eng_vdwl + pair_cg->eng_vdwl);
+      eng_coul = 0.5 * (pair_atomistic->eng_coul + pair_cg->eng_coul);
+    }
+  }
 
-        if (evflag) ev_tally(i, j, nlocal, newton_pair, evdwl, 0.0, fpair, delx, dely, delz);
+  if (vflag) {
+    for (int n = 0; n < 6; n++) {
+      if (fix_region) {
+        double lambda_avg = 0.5;
+        virial[n] = lambda_avg * pair_atomistic->virial[n] + (1.0 - lambda_avg) * pair_cg->virial[n];
+      } else {
+        virial[n] = 0.5 * (pair_atomistic->virial[n] + pair_cg->virial[n]);
       }
     }
   }
@@ -154,37 +176,97 @@ void PairAdResS::compute(int eflag, int vflag)
 
 void PairAdResS::settings(int narg, char **arg)
 {
-  if (narg != 1) error->all(FLERR, "Illegal pair_style command");
+  // Syntax: pair_style adress cut atomistic_style atomistic_args ... cg_style cg_args ...
+  // Minimum: cut + 2 style names
+  if (narg < 3) error->all(FLERR, "Illegal pair_style adress command");
 
   cut_global = utils::numeric(FLERR, arg[0], false, lmp);
-  if (cut_global <= 0.0) error->all(FLERR, "Illegal pair_style command");
+  if (cut_global <= 0.0) error->all(FLERR, "Illegal pair_style adress command");
+
+  // Find where CG style starts (look for second pair style name)
+  int iarg = 1;
+  while (iarg < narg && !force->pair_map->count(arg[iarg]) &&
+         !lmp->match_style("pair", arg[iarg])) {
+    iarg++;
+  }
+
+  if (iarg >= narg) error->all(FLERR, "Illegal pair_style adress command: missing CG pair style");
+
+  // Create atomistic pair style
+  style_atomistic = utils::strdup(arg[1]);
+  int dummy = 0;
+  pair_atomistic = force->new_pair(arg[1], 1, dummy);
+
+  // Determine arguments for atomistic style (everything between style names)
+  int jarg = iarg - 1;
+  if (jarg > 1) {
+    pair_atomistic->settings(jarg - 1, &arg[2]);
+  }
+
+  // Create CG pair style
+  style_cg = utils::strdup(arg[iarg]);
+  pair_cg = force->new_pair(arg[iarg], 1, dummy);
+
+  // Determine arguments for CG style (everything after CG style name)
+  if (iarg + 1 < narg) {
+    pair_cg->settings(narg - iarg - 1, &arg[iarg + 1]);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
 
 void PairAdResS::coeff(int narg, char **arg)
 {
-  if (narg < 2 || narg > 4) error->all(FLERR, "Incorrect args for pair coefficients");
+  // Simplified: pass same coefficients to both sub-styles
+  // Syntax: pair_coeff * * args ... [fix fix_id]
+  // or: pair_coeff i j args ... [fix fix_id]
+  if (narg < 2) error->all(FLERR, "Incorrect args for pair coefficients");
 
   if (!allocated) allocate();
 
+  // Check for fix keyword
+  int fix_arg = -1;
+  for (int i = 0; i < narg; i++) {
+    if (strcmp(arg[i], "fix") == 0) {
+      fix_arg = i;
+      break;
+    }
+  }
+
+  // Pass coefficients to atomistic style (excluding fix keyword)
+  int narg_sub = fix_arg >= 0 ? fix_arg : narg;
+  if (pair_atomistic && narg_sub > 0) {
+    pair_atomistic->coeff(narg_sub, arg);
+  }
+
+  // Pass same coefficients to CG style
+  if (pair_cg && narg_sub > 0) {
+    pair_cg->coeff(narg_sub, arg);
+  }
+
+  // Extract fix ID if present
+  if (fix_arg >= 0 && fix_arg + 1 < narg) {
+    delete[] id_fix_region;
+    id_fix_region = utils::strdup(arg[fix_arg + 1]);
+  }
+
+  // Set cutoffs and flags (use maximum of both styles)
   int ilo, ihi, jlo, jhi;
+  if (strcmp(arg[0], "*") == 0 && strcmp(arg[1], "*") == 0) {
+    ilo = 1; ihi = atom->ntypes;
+    jlo = 1; jhi = atom->ntypes;
+  } else {
   utils::bounds(FLERR, arg[0], 1, atom->ntypes, ilo, ihi, error);
   utils::bounds(FLERR, arg[1], 1, atom->ntypes, jlo, jhi, error);
-
-  double cut_one = cut_global;
-  if (narg >= 3) cut_one = utils::numeric(FLERR, arg[2], false, lmp);
-
-  // optional fix adres/region ID
-  if (narg == 4) {
-    delete[] id_fix_region;
-    id_fix_region = utils::strdup(arg[3]);
   }
 
   int count = 0;
   for (int i = ilo; i <= ihi; i++) {
     for (int j = MAX(jlo, i); j <= jhi; j++) {
-      cut[i][j] = cut_one;
+      // Use maximum cutoff from both styles
+      double cut_at = (pair_atomistic && pair_atomistic->cut) ? pair_atomistic->cut[i][j] : cut_global;
+      double cut_cg = (pair_cg && pair_cg->cut) ? pair_cg->cut[i][j] : cut_global;
+      cut[i][j] = MAX(cut_at, cut_cg);
       setflag[i][j] = 1;
       count++;
     }
@@ -197,6 +279,10 @@ void PairAdResS::coeff(int narg, char **arg)
 
 void PairAdResS::init_style()
 {
+  // Initialize sub-styles
+  if (pair_atomistic) pair_atomistic->init_style();
+  if (pair_cg) pair_cg->init_style();
+
   // request regular neighbor list
   neighbor->add_request(this);
 
@@ -211,11 +297,15 @@ void PairAdResS::init_style()
 
 double PairAdResS::init_one(int i, int j)
 {
+  // Initialize sub-styles first
+  if (pair_atomistic) pair_atomistic->init_one(i, j);
+  if (pair_cg) pair_cg->init_one(i, j);
+
   if (setflag[i][j] == 0) {
-    if (cut[i][i] > 0.0 && cut[j][j] > 0.0)
-      cut[i][j] = 0.5 * (cut[i][i] + cut[j][j]);
-    else
-      cut[i][j] = cut_global;
+    // Use maximum cutoff from sub-styles
+    double cut_at = (pair_atomistic && pair_atomistic->cut) ? pair_atomistic->cut[i][j] : cut_global;
+    double cut_cg = (pair_cg && pair_cg->cut) ? pair_cg->cut[i][j] : cut_global;
+    cut[i][j] = MAX(cut_at, cut_cg);
   }
 
   if (cut[i][j] > 0.0)
@@ -250,6 +340,37 @@ double PairAdResS::switching_function(double r, double rcut, double lambda)
   if (lambda >= 1.0) return 1.0;
   if (lambda <= 0.0) return 0.0;
   return lambda;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PairAdResS::interpolate_forces()
+{
+  // Interpolate forces based on per-atom lambda values
+  // F = lambda * F_at + (1 - lambda) * F_cg
+  
+  double **f = atom->f;
+  const int nlocal = atom->nlocal;
+  const int nall = nlocal + atom->nghost;
+
+  if (!fix_region) {
+    // No lambda values - use equal weighting
+    for (int i = 0; i < nall; i++) {
+      f[i][0] = 0.5 * (f_atomistic[i][0] + f_cg[i][0]);
+      f[i][1] = 0.5 * (f_atomistic[i][1] + f_cg[i][1]);
+      f[i][2] = 0.5 * (f_atomistic[i][2] + f_cg[i][2]);
+    }
+    return;
+  }
+
+  // Interpolate based on per-atom lambda
+  for (int i = 0; i < nall; i++) {
+    double lambda_i = fix_region->get_lambda(i);
+    
+    f[i][0] = lambda_i * f_atomistic[i][0] + (1.0 - lambda_i) * f_cg[i][0];
+    f[i][1] = lambda_i * f_atomistic[i][1] + (1.0 - lambda_i) * f_cg[i][1];
+    f[i][2] = lambda_i * f_atomistic[i][2] + (1.0 - lambda_i) * f_cg[i][2];
+  }
 }
 
 /* ---------------------------------------------------------------------- */

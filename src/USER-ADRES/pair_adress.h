@@ -46,8 +46,20 @@ class PairAdResS : public Pair {
   char *id_fix_region;
   class FixAdResSRegion *fix_region;
 
+  // Sub-styles for atomistic and CG interactions
+  class Pair *pair_atomistic;
+  class Pair *pair_cg;
+  char *style_atomistic;
+  char *style_cg;
+
+  // Temporary force arrays for interpolation
+  double **f_atomistic;
+  double **f_cg;
+  int nmax_force;
+
   virtual void allocate();
   double switching_function(double, double, double);
+  void interpolate_forces();
 };
 
 }    // namespace LAMMPS_NS
