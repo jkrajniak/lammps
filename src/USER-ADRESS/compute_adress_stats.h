@@ -27,7 +27,7 @@ namespace LAMMPS_NS {
 class ComputeAdResSStats : public Compute {
  public:
   ComputeAdResSStats(class LAMMPS *, int, char **);
-  ~ComputeAdResStats() override;
+  ~ComputeAdResSStats() override;
   void init() override;
   void compute_vector() override;
 

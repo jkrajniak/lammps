@@ -18,9 +18,11 @@ region          cg block -20.0 -12.0 -10.0 10.0 -10.0 10.0
 # Create atoms (placeholder - would use read_data or create_atoms)
 # read_data      data.adres
 
-# Pair interactions
-pair_style      adress 10.0
-pair_coeff      * * 10.0
+# Pair interactions with AdResS force interpolation
+# Atomistic: lj/cut with cutoff 2.5
+# CG: lj/cut with cutoff 5.0 (longer range for CG)
+pair_style      adress 10.0 lj/cut 2.5 lj/cut 5.0
+pair_coeff      * * 1.0 1.0 2.5 fix adres_region
 
 # AdResS fixes
 # Transition along x-axis (default)

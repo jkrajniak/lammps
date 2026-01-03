@@ -34,7 +34,7 @@ using namespace FixConst;
 
 /* ---------------------------------------------------------------------- */
 
-FixAdResSThermo::FixAdResThermo(LAMMPS *lmp, int narg, char **arg) :
+FixAdResSThermo::FixAdResSThermo(LAMMPS *lmp, int narg, char **arg) :
     Fix(lmp, narg, arg), id_region(nullptr), id_fix_region(nullptr), region(nullptr),
     fix_region(nullptr), transition_width(0.0), kT(0.0), thermo_force(nullptr), maxatom(0)
 {
@@ -64,7 +64,7 @@ FixAdResSThermo::FixAdResThermo(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-FixAdResSThermo::~FixAdResThermo()
+FixAdResSThermo::~FixAdResSThermo()
 {
   delete[] id_region;
   delete[] id_fix_region;

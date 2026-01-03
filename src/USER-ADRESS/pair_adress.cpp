@@ -13,6 +13,8 @@
 
 #include "pair_adress.h"
 
+#include <cmath>
+
 #include "atom.h"
 #include "comm.h"
 #include "error.h"
@@ -33,7 +35,7 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-PairAdResS::PairAdRes(LAMMPS *lmp) : Pair(lmp), cut_global(0.0), cut(nullptr),
+PairAdResS::PairAdResS(LAMMPS *lmp) : Pair(lmp), cut_global(0.0), cut(nullptr),
     id_fix_region(nullptr), fix_region(nullptr), pair_atomistic(nullptr),
     pair_cg(nullptr), style_atomistic(nullptr), style_cg(nullptr),
     f_atomistic(nullptr), f_cg(nullptr), nmax_force(0)
@@ -45,7 +47,7 @@ PairAdResS::PairAdRes(LAMMPS *lmp) : Pair(lmp), cut_global(0.0), cut(nullptr),
 
 /* ---------------------------------------------------------------------- */
 
-PairAdResS::~PairAdRes()
+PairAdResS::~PairAdResS()
 {
   if (allocated) {
     memory->destroy(setflag);
@@ -184,7 +186,8 @@ void PairAdResS::settings(int narg, char **arg)
   if (cut_global <= 0.0) error->all(FLERR, "Illegal pair_style adress command");
 
   // Find where CG style starts (look for second pair style name)
-  int iarg = 1;
+  // Start from arg[2] to skip the atomistic style name at arg[1]
+  int iarg = 2;
   while (iarg < narg && !force->pair_map->count(arg[iarg]) &&
          !lmp->match_style("pair", arg[iarg])) {
     iarg++;
@@ -198,9 +201,15 @@ void PairAdResS::settings(int narg, char **arg)
   pair_atomistic = force->new_pair(arg[1], 1, dummy);
 
   // Determine arguments for atomistic style (everything between style names)
-  int jarg = iarg - 1;
-  if (jarg > 1) {
-    pair_atomistic->settings(jarg - 1, &arg[2]);
+  // arg[0] = cut_global
+  // arg[1] = atomistic style name
+  // arg[2] ... arg[iarg-1] = atomistic arguments
+  // arg[iarg] = CG style name
+  // So the number of atomistic arguments is (iarg - 2)
+  int narg_at = iarg - 2;
+  if (narg_at > 0) {
+    // Pass narg_at arguments starting from arg[2]
+    pair_atomistic->settings(narg_at, &arg[2]);
   }
 
   // Create CG pair style
@@ -217,31 +226,99 @@ void PairAdResS::settings(int narg, char **arg)
 
 void PairAdResS::coeff(int narg, char **arg)
 {
-  // Simplified: pass same coefficients to both sub-styles
-  // Syntax: pair_coeff * * args ... [fix fix_id]
-  // or: pair_coeff i j args ... [fix fix_id]
+  // New syntax: pair_coeff i j atomistic <atomistic_args> cg <cg_args> [fix fix_id]
+  // Old syntax: pair_coeff i j <args> [fix fix_id] (backward compatible)
   if (narg < 2) error->all(FLERR, "Incorrect args for pair coefficients");
 
   if (!allocated) allocate();
 
-  // Check for fix keyword
+  // Find keywords: atomistic, cg, fix
+  int atomistic_arg = -1;
+  int cg_arg = -1;
   int fix_arg = -1;
+  
   for (int i = 0; i < narg; i++) {
-    if (strcmp(arg[i], "fix") == 0) {
+    if (strcmp(arg[i], "atomistic") == 0) {
+      atomistic_arg = i;
+    } else if (strcmp(arg[i], "cg") == 0) {
+      cg_arg = i;
+    } else if (strcmp(arg[i], "fix") == 0) {
       fix_arg = i;
-      break;
     }
   }
 
-  // Pass coefficients to atomistic style (excluding fix keyword)
-  int narg_sub = fix_arg >= 0 ? fix_arg : narg;
-  if (pair_atomistic && narg_sub > 0) {
-    pair_atomistic->coeff(narg_sub, arg);
-  }
-
-  // Pass same coefficients to CG style
-  if (pair_cg && narg_sub > 0) {
-    pair_cg->coeff(narg_sub, arg);
+  // Determine if using new syntax (both keywords present) or old syntax
+  bool new_syntax = (atomistic_arg >= 0 && cg_arg >= 0);
+  
+  if (new_syntax) {
+    // NEW SYNTAX: Separate coefficients for atomistic and CG
+    
+    // Validate keyword order
+    if (atomistic_arg >= cg_arg) {
+      error->all(FLERR, "pair_coeff: 'atomistic' keyword must come before 'cg' keyword");
+    }
+    if (fix_arg >= 0 && cg_arg >= fix_arg) {
+      error->all(FLERR, "pair_coeff: 'cg' keyword must come before 'fix' keyword");
+    }
+    
+    // Extract atomistic arguments (between "atomistic" and "cg")
+    int narg_at = cg_arg - atomistic_arg - 1;
+    if (narg_at < 0) {
+      error->all(FLERR, "pair_coeff: No arguments provided for atomistic sub-style");
+    }
+    
+    // Extract CG arguments (between "cg" and "fix" or end)
+    int end_arg = (fix_arg >= 0) ? fix_arg : narg;
+    int narg_cg = end_arg - cg_arg - 1;
+    if (narg_cg < 0) {
+      error->all(FLERR, "pair_coeff: No arguments provided for CG sub-style");
+    }
+    
+    // Build argument arrays for each sub-style
+    // Atomistic: [i, j, arg[atomistic_arg+1], ..., arg[cg_arg-1]]
+    // CG: [i, j, arg[cg_arg+1], ..., arg[end_arg-1]]
+    
+    // For atomistic sub-style
+    if (pair_atomistic && narg_at > 0) {
+      // Create temporary array: [arg[0], arg[1], atomistic_args...]
+      char **arg_at = new char*[narg_at + 2];
+      arg_at[0] = arg[0];  // i
+      arg_at[1] = arg[1];  // j
+      for (int i = 0; i < narg_at; i++) {
+        arg_at[i + 2] = arg[atomistic_arg + 1 + i];
+      }
+      pair_atomistic->coeff(narg_at + 2, arg_at);
+      delete[] arg_at;
+    }
+    
+    // For CG sub-style
+    if (pair_cg && narg_cg > 0) {
+      // Create temporary array: [arg[0], arg[1], cg_args...]
+      char **arg_cg = new char*[narg_cg + 2];
+      arg_cg[0] = arg[0];  // i
+      arg_cg[1] = arg[1];  // j
+      for (int i = 0; i < narg_cg; i++) {
+        arg_cg[i + 2] = arg[cg_arg + 1 + i];
+      }
+      pair_cg->coeff(narg_cg + 2, arg_cg);
+      delete[] arg_cg;
+    }
+    
+  } else {
+    // OLD SYNTAX: Same coefficients for both (backward compatibility)
+    // Check if only one keyword is present (error case)
+    if (atomistic_arg >= 0 || cg_arg >= 0) {
+      error->all(FLERR, "pair_coeff: Both 'atomistic' and 'cg' keywords must be present, or neither");
+    }
+    
+    // Original behavior: pass same coefficients to both sub-styles
+    int narg_sub = fix_arg >= 0 ? fix_arg : narg;
+    if (pair_atomistic && narg_sub > 0) {
+      pair_atomistic->coeff(narg_sub, arg);
+    }
+    if (pair_cg && narg_sub > 0) {
+      pair_cg->coeff(narg_sub, arg);
+    }
   }
 
   // Extract fix ID if present
@@ -264,8 +341,21 @@ void PairAdResS::coeff(int narg, char **arg)
   for (int i = ilo; i <= ihi; i++) {
     for (int j = MAX(jlo, i); j <= jhi; j++) {
       // Use maximum cutoff from both styles
-      double cut_at = (pair_atomistic && pair_atomistic->cut) ? pair_atomistic->cut[i][j] : cut_global;
-      double cut_cg = (pair_cg && pair_cg->cut) ? pair_cg->cut[i][j] : cut_global;
+      // Base Pair class has cutforce (max cutoff) and cutsq[i][j] (cutoff squared)
+      double cut_at = cut_global;
+      double cut_cg = cut_global;
+      if (pair_atomistic) {
+        if (pair_atomistic->cutsq && pair_atomistic->cutsq[i][j] > 0.0)
+          cut_at = sqrt(pair_atomistic->cutsq[i][j]);
+        else
+          cut_at = pair_atomistic->cutforce;
+      }
+      if (pair_cg) {
+        if (pair_cg->cutsq && pair_cg->cutsq[i][j] > 0.0)
+          cut_cg = sqrt(pair_cg->cutsq[i][j]);
+        else
+          cut_cg = pair_cg->cutforce;
+      }
       cut[i][j] = MAX(cut_at, cut_cg);
       setflag[i][j] = 1;
       count++;
@@ -303,8 +393,21 @@ double PairAdResS::init_one(int i, int j)
 
   if (setflag[i][j] == 0) {
     // Use maximum cutoff from sub-styles
-    double cut_at = (pair_atomistic && pair_atomistic->cut) ? pair_atomistic->cut[i][j] : cut_global;
-    double cut_cg = (pair_cg && pair_cg->cut) ? pair_cg->cut[i][j] : cut_global;
+    // Base Pair class has cutforce (max cutoff) and cutsq[i][j] (cutoff squared)
+    double cut_at = cut_global;
+    double cut_cg = cut_global;
+    if (pair_atomistic) {
+      if (pair_atomistic->cutsq && pair_atomistic->cutsq[i][j] > 0.0)
+        cut_at = sqrt(pair_atomistic->cutsq[i][j]);
+      else
+        cut_at = pair_atomistic->cutforce;
+    }
+    if (pair_cg) {
+      if (pair_cg->cutsq && pair_cg->cutsq[i][j] > 0.0)
+        cut_cg = sqrt(pair_cg->cutsq[i][j]);
+      else
+        cut_cg = pair_cg->cutforce;
+    }
     cut[i][j] = MAX(cut_at, cut_cg);
   }
 

@@ -27,7 +27,7 @@ namespace LAMMPS_NS {
 class FixAdResSThermo : public Fix {
  public:
   FixAdResSThermo(class LAMMPS *, int, char **);
-  ~FixAdResThermo() override;
+  ~FixAdResSThermo() override;
   int setmask() override;
   void init() override;
   void setup(int) override;

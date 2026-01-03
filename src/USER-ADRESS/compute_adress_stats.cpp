@@ -11,7 +11,7 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
-#include "compute_adres_stats.h"
+#include "compute_adress_stats.h"
 
 #include "atom.h"
 #include "error.h"
@@ -27,7 +27,7 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-ComputeAdResSStats::ComputeAdResStats(LAMMPS *lmp, int narg, char **arg) :
+ComputeAdResSStats::ComputeAdResSStats(LAMMPS *lmp, int narg, char **arg) :
     Compute(lmp, narg, arg), id_fix_region(nullptr), fix_region(nullptr), nregions(3),
     natoms_region(nullptr), nlocal_region(nullptr)
 {
@@ -48,7 +48,7 @@ ComputeAdResSStats::ComputeAdResStats(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-ComputeAdResSStats::~ComputeAdResStats()
+ComputeAdResSStats::~ComputeAdResSStats()
 {
   delete[] id_fix_region;
   memory->destroy(natoms_region);
