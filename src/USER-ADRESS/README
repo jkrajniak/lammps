@@ -5,6 +5,10 @@ This package implements the Adaptive Resolution Scheme (AdResS) method for LAMMP
 enabling hybrid molecular dynamics simulations where molecules can transition
 between atomistic (fine-grained) and coarse-grained (CG) resolution regions.
 
+**Note**: The current implementation provides force interpolation between atomistic
+and CG pair styles, but does not enforce center-of-mass (COM) constraints for
+molecules in the CG region. See LIMITATIONS.md for details.
+
 Contents
 --------
 
