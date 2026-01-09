@@ -9,6 +9,9 @@ between atomistic (fine-grained) and coarse-grained (CG) resolution regions.
 and CG pair styles, but does not enforce center-of-mass (COM) constraints for
 molecules in the CG region. See LIMITATIONS.md for details.
 
+**Implementation Status**: A comprehensive plan for completing the AdResS implementation
+is available. See IMPLEMENTATION_PLAN.md for the full roadmap.
+
 Contents
 --------
 
@@ -18,6 +21,7 @@ The package provides the following commands:
 * fix adress/region - Manages resolution regions and transitions
 * pair adress - Handles hybrid pair interactions
 * compute adress/stats - Provides diagnostics and statistics
+* fix adress/constraint - COM constraint system (framework exists, implementation in progress)
 
 Installation
 ------------
@@ -36,6 +40,16 @@ Authors
 This package implements the Adaptive Resolution Scheme (AdResS) method for
 hybrid atomistic/coarse-grained molecular dynamics simulations.
 
+Documentation
+-------------
+
+* **IMPLEMENTATION_PLAN.md** - Comprehensive plan for completing AdResS implementation
+* **TECHNICAL_SPECIFICATION.md** - Detailed technical specifications and algorithms
+* **QUICK_START_GUIDE.md** - Quick reference for developers
+* **LIMITATIONS.md** - Current limitations and missing features
+* **COMPARISON_ESPRESSO.md** - Comparison with Espresso++ implementation
+* **CONSTRAINT_DESIGN_UPDATED.md** - Design details for constraint system
+
 References
 ----------
 
@@ -43,3 +57,6 @@ The AdResS method allows molecules to smoothly transition between different
 resolution levels, maintaining proper thermodynamics through the application
 of thermodynamic forces in transition regions.
 
+Key references:
+* Praprotnik et al., J. Chem. Phys. 123, 224106 (2005)
+* Praprotnik et al., Annu. Rev. Phys. Chem. 59, 545 (2008)

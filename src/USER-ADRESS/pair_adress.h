@@ -57,9 +57,22 @@ class PairAdResS : public Pair {
   double **f_cg;
   int nmax_force;
 
+  // CG particle type for region-based filtering
+  int cg_type;  // Atom type of CG particles (0 = not set)
+
   virtual void allocate();
   double switching_function(double, double, double);
   void interpolate_forces();
+  void filter_forces_by_region();  // Filter forces based on region (zeros invalid forces)
+  int get_cg_type();  // Get CG type from fix_adress_constraint or return 0
+  
+  // Methods for filter-during-compute approach
+  bool should_compute_AT_force(int i, int j);  // Check if pair should have AT force
+  bool should_compute_CG_force(int i, int j);  // Check if pair should have CG force
+  void compute_AT_force_pair(int i, int j, int eflag, int vflag);  // Compute AT force for single pair
+  void compute_CG_force_pair(int i, int j, int eflag, int vflag);  // Compute CG force for single pair
+  void interpolate_energy();  // Interpolate energy based on lambda
+  void interpolate_virial();  // Interpolate virial based on lambda
 };
 
 }    // namespace LAMMPS_NS
