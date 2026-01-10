@@ -521,8 +521,9 @@ void PairAdResS::interpolate_forces()
   }
 
   // Interpolate based on per-atom lambda
+  // Use get_lambda_cg() which returns inverted lambda for CG particles
   for (int i = 0; i < nall; i++) {
-    double lambda_i = fix_region->get_lambda(i);
+    double lambda_i = fix_region->get_lambda_cg(i);
     
     f[i][0] = lambda_i * f_atomistic[i][0] + (1.0 - lambda_i) * f_cg[i][0];
     f[i][1] = lambda_i * f_atomistic[i][1] + (1.0 - lambda_i) * f_cg[i][1];
@@ -770,17 +771,11 @@ void PairAdResS::compute_AT_force_pair(int i, int j, double rsq,
   
   // Check if single() is available
   if (pair_atomistic->single_enable == 0) {
-    // Fall back: This shouldn't happen often, but if it does, we need full computation
-    // For now, skip this pair (could implement fallback later)
-    static int warned = 0;
-    if (!warned && comm->me == 0) {
-      error->warning(FLERR, 
-        "Pair style {} does not support single() method. "
-        "Some AT forces may not be computed correctly.",
-        pair_atomistic->style);
-      warned = 1;
-    }
-    return;
+    error->all(FLERR, 
+      "Pair style {} does not support single() method. "
+      "AdResS requires pairwise potentials that support the single() method. "
+      "Please use a different pair style for the atomistic interaction.",
+      style_atomistic);
   }
   
   // Get special bond factors
@@ -866,16 +861,11 @@ void PairAdResS::compute_CG_force_pair(int i, int j, double rsq,
   
   // Check if single() is available
   if (pair_cg->single_enable == 0) {
-    // Fall back: This shouldn't happen often, but if it does, we need full computation
-    static int warned = 0;
-    if (!warned && comm->me == 0) {
-      error->warning(FLERR,
-        "Pair style {} does not support single() method. "
-        "Some CG forces may not be computed correctly.",
-        pair_cg->style);
-      warned = 1;
-    }
-    return;
+    error->all(FLERR,
+      "Pair style {} does not support single() method. "
+      "AdResS requires pairwise potentials that support the single() method. "
+      "Please use a different pair style for the CG interaction.",
+      style_cg);
   }
   
   // Get special bond factors

@@ -69,8 +69,8 @@ class PairAdResS : public Pair {
   // Methods for filter-during-compute approach
   bool should_compute_AT_force(int i, int j);  // Check if pair should have AT force
   bool should_compute_CG_force(int i, int j);  // Check if pair should have CG force
-  void compute_AT_force_pair(int i, int j, int eflag, int vflag);  // Compute AT force for single pair
-  void compute_CG_force_pair(int i, int j, int eflag, int vflag);  // Compute CG force for single pair
+  void compute_AT_force_pair(int i, int j, double rsq, double delx, double dely, double delz, int eflag, int vflag);  // Compute AT force for single pair
+  void compute_CG_force_pair(int i, int j, double rsq, double delx, double dely, double delz, int eflag, int vflag);  // Compute CG force for single pair
   void interpolate_energy();  // Interpolate energy based on lambda
   void interpolate_virial();  // Interpolate virial based on lambda
 };

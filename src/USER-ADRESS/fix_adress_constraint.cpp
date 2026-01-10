@@ -15,6 +15,7 @@
 
 #include "atom.h"
 #include "comm.h"
+#include "domain.h"
 #include "error.h"
 #include "fix_adress_region.h"
 #include "memory.h"
@@ -25,6 +26,9 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <set>
+#include <vector>
+#include <mpi.h>
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -33,7 +37,7 @@ using namespace FixConst;
 
 FixAdResSConstraint::FixAdResSConstraint(LAMMPS *lmp, int narg, char **arg) :
     Fix(lmp, narg, arg), id_fix_region(nullptr), fix_region(nullptr), cg_type(0),
-    molecule_map(nullptr), cg_atom_index(nullptr), nmolecules(0), maxmolecule(0),
+    molecule_map(nullptr), cg_atom_index(nullptr), mol_id_list(nullptr), nmolecules(0), maxmolecule(0),
     x_com(nullptr), v_com(nullptr), f_com(nullptr), x_cg_stored(nullptr),
     v_cg_stored(nullptr), mass_com(nullptr), displace(nullptr), maxatom(0),
     lambda_cg_threshold(0.1), lambda_at_threshold(0.9)
@@ -96,6 +100,7 @@ FixAdResSConstraint::~FixAdResSConstraint()
   delete[] id_fix_region;
   memory->destroy(molecule_map);
   memory->destroy(cg_atom_index);
+  memory->destroy(mol_id_list);
   memory->destroy(x_com);
   memory->destroy(v_com);
   memory->destroy(f_com);
@@ -189,13 +194,101 @@ void FixAdResSConstraint::map_molecules()
   }
 
   // MPI communication to get global molecule count and CG particle locations
-  // For now, assume each processor has complete molecule information
-  // TODO: Handle distributed molecules properly
+  // Gather all molecule IDs from all processors to build global molecule list
+  
+  // Step 1: Collect local molecule IDs
+  std::vector<tagint> local_mol_ids;
+  for (auto &pair : mol_id_to_index) {
+    local_mol_ids.push_back(pair.first);
+  }
+  int nlocal_mols = local_mol_ids.size();
+  
+  // Step 2: Gather counts from all processors
+  int *mol_counts = nullptr;
+  int *mol_displs = nullptr;
+  if (comm->me == 0) {
+    mol_counts = new int[comm->nprocs];
+    mol_displs = new int[comm->nprocs];
+  }
+  MPI_Gather(&nlocal_mols, 1, MPI_INT, mol_counts, 1, MPI_INT, 0, world);
+  
+  // Step 3: Calculate displacements and total count
+  int total_mols = 0;
+  if (comm->me == 0) {
+    mol_displs[0] = 0;
+    for (int i = 0; i < comm->nprocs; i++) {
+      if (i > 0) mol_displs[i] = mol_displs[i-1] + mol_counts[i-1];
+      total_mols += mol_counts[i];
+    }
+  }
+  
+  // Step 4: Gather all molecule IDs
+  std::vector<tagint> all_mol_ids;
+  if (comm->me == 0) {
+    all_mol_ids.resize(total_mols);
+  }
+  MPI_Gatherv(local_mol_ids.data(), nlocal_mols, MPI_LMP_TAGINT,
+               comm->me == 0 ? all_mol_ids.data() : nullptr,
+               mol_counts, mol_displs, MPI_LMP_TAGINT, 0, world);
+  
+  // Step 5: Build unique global molecule list (on proc 0)
+  std::set<tagint> unique_mols;
+  if (comm->me == 0) {
+    for (tagint mol_id : all_mol_ids) {
+      if (mol_id > 0) unique_mols.insert(mol_id);
+    }
+    nmolecules = unique_mols.size();
+  }
+  
+  // Broadcast global molecule count
+  MPI_Bcast(&nmolecules, 1, MPI_INT, 0, world);
+  
+  // Step 6: Broadcast unique molecule IDs to all processors
+  std::vector<tagint> global_mol_list;
+  if (comm->me == 0) {
+    global_mol_list.assign(unique_mols.begin(), unique_mols.end());
+  } else {
+    global_mol_list.resize(nmolecules);
+  }
+  if (nmolecules > 0) {
+    MPI_Bcast(global_mol_list.data(), nmolecules, MPI_LMP_TAGINT, 0, world);
+  }
+  
+  // Step 7: Rebuild local molecule mapping using global list
+  mol_id_to_index.clear();
+  for (int m = 0; m < nmolecules; m++) {
+    mol_id_to_index[global_mol_list[m]] = m;
+  }
+  
+  // Step 8: Determine which processor owns each molecule's CG particle
+  // For each molecule, find which processor has the CG particle locally
+  // Initialize with large value, set to comm->me if we have CG particle, then use MPI_MIN
+  std::vector<int> cg_owner(nmolecules, comm->nprocs);
+  for (auto &pair : mol_id_to_cg) {
+    tagint mol_id = pair.first;
+    auto it = mol_id_to_index.find(mol_id);
+    if (it != mol_id_to_index.end()) {
+      cg_owner[it->second] = comm->me;  // This processor owns the CG particle
+    }
+  }
+  
+  // Reduce to find global owner (processor with lowest rank that has CG particle)
+  // Use MPI_MIN to find lowest rank processor
+  std::vector<int> global_cg_owner(nmolecules);
+  MPI_Allreduce(cg_owner.data(), global_cg_owner.data(), nmolecules, 
+                MPI_INT, MPI_MIN, world);
+  
+  // Clean up temporary arrays
+  if (comm->me == 0) {
+    delete[] mol_counts;
+    delete[] mol_displs;
+  }
 
   // Allocate molecule arrays if needed
   if (nmolecules > maxmolecule) {
     maxmolecule = nmolecules + 100;  // Add some padding
     memory->destroy(cg_atom_index);
+    memory->destroy(mol_id_list);
     memory->destroy(x_com);
     memory->destroy(v_com);
     memory->destroy(f_com);
@@ -204,6 +297,7 @@ void FixAdResSConstraint::map_molecules()
     memory->destroy(mass_com);
 
     memory->create(cg_atom_index, maxmolecule, "adress/constraint:cg_atom_index");
+    memory->create(mol_id_list, maxmolecule, "adress/constraint:mol_id_list");
     memory->create(x_com, maxmolecule, 3, "adress/constraint:x_com");
     memory->create(v_com, maxmolecule, 3, "adress/constraint:v_com");
     memory->create(f_com, maxmolecule, 3, "adress/constraint:f_com");
@@ -214,12 +308,22 @@ void FixAdResSConstraint::map_molecules()
     // Initialize
     for (int m = 0; m < maxmolecule; m++) {
       cg_atom_index[m] = -1;
+      mol_id_list[m] = 0;
       x_com[m][0] = x_com[m][1] = x_com[m][2] = 0.0;
       v_com[m][0] = v_com[m][1] = v_com[m][2] = 0.0;
       f_com[m][0] = f_com[m][1] = f_com[m][2] = 0.0;
       x_cg_stored[m][0] = x_cg_stored[m][1] = x_cg_stored[m][2] = 0.0;
       v_cg_stored[m][0] = v_cg_stored[m][1] = v_cg_stored[m][2] = 0.0;
       mass_com[m] = 0.0;
+    }
+  }
+  
+  // Store molecule ID list
+  for (int m = 0; m < nmolecules; m++) {
+    if (m < (int)global_mol_list.size()) {
+      mol_id_list[m] = global_mol_list[m];
+    } else {
+      mol_id_list[m] = 0;
     }
   }
 
@@ -239,12 +343,17 @@ void FixAdResSConstraint::map_molecules()
   }
 
   // Build cg_atom_index
+  // Only set cg_atom_index if this processor owns the CG particle
   for (auto &pair : mol_id_to_cg) {
     tagint mol_id = pair.first;
     int cg_local = pair.second;
     auto it = mol_id_to_index.find(mol_id);
     if (it != mol_id_to_index.end()) {
-      cg_atom_index[it->second] = cg_local;
+      int mol_idx = it->second;
+      // Only set if this processor owns the CG particle
+      if (global_cg_owner[mol_idx] == comm->me) {
+        cg_atom_index[mol_idx] = cg_local;
+      }
     }
   }
 
@@ -311,16 +420,172 @@ void FixAdResSConstraint::final_integrate()
 
 void FixAdResSConstraint::calculate_com_from_atoms(int mol_idx)
 {
-  // Placeholder - will be implemented in Phase 3
   // Calculate COM from atom positions for given molecule
+  // Uses MPI to aggregate across processors for distributed molecules
+  
+  if (mol_idx < 0 || mol_idx >= nmolecules) return;
+  
+  tagint mol_id = mol_id_list[mol_idx];
+  if (mol_id == 0) return;  // Invalid molecule ID
+  
+  double **x = atom->x;
+  double **v = atom->v;
+  imageint *image = atom->image;
+  tagint *molecule = atom->molecule;
+  double *mass = atom->mass;
+  double *rmass = atom->rmass;
+  int *type = atom->type;
+  int nlocal = atom->nlocal;
+  int nall = nlocal + atom->nghost;
+  
+  // Partial sums for COM calculation
+  double sum_mx[3] = {0.0, 0.0, 0.0};  // Σ(m_i * x_i)
+  double sum_mv[3] = {0.0, 0.0, 0.0};  // Σ(m_i * v_i)
+  double sum_m = 0.0;                   // Σ(m_i)
+  
+  // Unwrap coordinates relative to first atom in molecule (or CG particle if available)
+  // Find reference atom (first atom or CG particle)
+  double x_ref[3] = {0.0, 0.0, 0.0};
+  int found_ref = 0;
+  
+  // Try to use CG particle as reference if available
+  if (cg_atom_index[mol_idx] >= 0 && cg_atom_index[mol_idx] < nall) {
+    int cg_idx = cg_atom_index[mol_idx];
+    x_ref[0] = x[cg_idx][0];
+    x_ref[1] = x[cg_idx][1];
+    x_ref[2] = x[cg_idx][2];
+    found_ref = 1;
+  } else {
+    // Use first atom in molecule as reference
+    for (int i = 0; i < nlocal; i++) {
+      if (molecule[i] == mol_id) {
+        x_ref[0] = x[i][0];
+        x_ref[1] = x[i][1];
+        x_ref[2] = x[i][2];
+        found_ref = 1;
+        break;
+      }
+    }
+  }
+  
+  // If no reference found, cannot calculate COM
+  if (!found_ref) {
+    x_com[mol_idx][0] = x_com[mol_idx][1] = x_com[mol_idx][2] = 0.0;
+    v_com[mol_idx][0] = v_com[mol_idx][1] = v_com[mol_idx][2] = 0.0;
+    mass_com[mol_idx] = 0.0;
+    return;
+  }
+  
+  // Calculate partial sums for all atoms in molecule
+  for (int i = 0; i < nall; i++) {
+    if (molecule[i] != mol_id) continue;
+    
+    // Get mass
+    double massone;
+    if (rmass) {
+      massone = rmass[i];
+    } else {
+      massone = mass[type[i]];
+    }
+    
+    // Unwrap coordinates relative to reference
+    double dx[3], xunwrap[3];
+    dx[0] = x[i][0] - x_ref[0];
+    dx[1] = x[i][1] - x_ref[1];
+    dx[2] = x[i][2] - x_ref[2];
+    
+    // Apply minimum image convention
+    domain->minimum_image(FLERR, dx[0], dx[1], dx[2]);
+    
+    xunwrap[0] = x_ref[0] + dx[0];
+    xunwrap[1] = x_ref[1] + dx[1];
+    xunwrap[2] = x_ref[2] + dx[2];
+    
+    // Accumulate sums
+    sum_mx[0] += xunwrap[0] * massone;
+    sum_mx[1] += xunwrap[1] * massone;
+    sum_mx[2] += xunwrap[2] * massone;
+    
+    sum_mv[0] += v[i][0] * massone;
+    sum_mv[1] += v[i][1] * massone;
+    sum_mv[2] += v[i][2] * massone;
+    
+    sum_m += massone;
+  }
+  
+  // Aggregate across all processors using MPI
+  double all_sum_mx[3], all_sum_mv[3], all_sum_m;
+  MPI_Allreduce(sum_mx, all_sum_mx, 3, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(sum_mv, all_sum_mv, 3, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&sum_m, &all_sum_m, 1, MPI_DOUBLE, MPI_SUM, world);
+  
+  // Calculate final COM
+  if (all_sum_m > 0.0) {
+    x_com[mol_idx][0] = all_sum_mx[0] / all_sum_m;
+    x_com[mol_idx][1] = all_sum_mx[1] / all_sum_m;
+    x_com[mol_idx][2] = all_sum_mx[2] / all_sum_m;
+    
+    v_com[mol_idx][0] = all_sum_mv[0] / all_sum_m;
+    v_com[mol_idx][1] = all_sum_mv[1] / all_sum_m;
+    v_com[mol_idx][2] = all_sum_mv[2] / all_sum_m;
+    
+    mass_com[mol_idx] = all_sum_m;
+  } else {
+    x_com[mol_idx][0] = x_com[mol_idx][1] = x_com[mol_idx][2] = 0.0;
+    v_com[mol_idx][0] = v_com[mol_idx][1] = v_com[mol_idx][2] = 0.0;
+    mass_com[mol_idx] = 0.0;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixAdResSConstraint::calculate_com_from_cg(int mol_idx)
 {
-  // Placeholder - will be implemented in Phase 2
   // Get COM from CG particle position
+  // Simple case: COM = CG particle position (CG particle represents the molecule)
+  
+  if (mol_idx < 0 || mol_idx >= nmolecules) return;
+  
+  int cg_idx = cg_atom_index[mol_idx];
+  if (cg_idx < 0) {
+    // No CG particle - cannot calculate COM from CG
+    x_com[mol_idx][0] = x_com[mol_idx][1] = x_com[mol_idx][2] = 0.0;
+    v_com[mol_idx][0] = v_com[mol_idx][1] = v_com[mol_idx][2] = 0.0;
+    mass_com[mol_idx] = 0.0;
+    return;
+  }
+  
+  double **x = atom->x;
+  double **v = atom->v;
+  double *mass = atom->mass;
+  double *rmass = atom->rmass;
+  int *type = atom->type;
+  int nall = atom->nlocal + atom->nghost;
+  
+  if (cg_idx >= nall) {
+    // CG particle index out of range
+    x_com[mol_idx][0] = x_com[mol_idx][1] = x_com[mol_idx][2] = 0.0;
+    v_com[mol_idx][0] = v_com[mol_idx][1] = v_com[mol_idx][2] = 0.0;
+    mass_com[mol_idx] = 0.0;
+    return;
+  }
+  
+  // COM = CG particle position
+  x_com[mol_idx][0] = x[cg_idx][0];
+  x_com[mol_idx][1] = x[cg_idx][1];
+  x_com[mol_idx][2] = x[cg_idx][2];
+  
+  // COM velocity = CG particle velocity
+  v_com[mol_idx][0] = v[cg_idx][0];
+  v_com[mol_idx][1] = v[cg_idx][1];
+  v_com[mol_idx][2] = v[cg_idx][2];
+  
+  // Mass = CG particle mass
+  if (rmass) {
+    mass_com[mol_idx] = rmass[cg_idx];
+  } else {
+    mass_com[mol_idx] = mass[type[cg_idx]];
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -428,6 +693,7 @@ double FixAdResSConstraint::memory_usage()
   bytes += (double) maxatom * sizeof(int);           // molecule_map
   bytes += (double) maxatom * 3 * sizeof(double);    // displace
   bytes += (double) maxmolecule * sizeof(int);        // cg_atom_index
+  bytes += (double) maxmolecule * sizeof(tagint);     // mol_id_list
   bytes += (double) maxmolecule * 3 * sizeof(double); // x_com, v_com, f_com, x_cg_stored, v_cg_stored
   bytes += (double) maxmolecule * sizeof(double);     // mass_com
   return bytes;

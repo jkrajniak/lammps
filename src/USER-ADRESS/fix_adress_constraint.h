@@ -54,6 +54,7 @@ class FixAdResSConstraint : public Fix {
   // Molecule mapping
   int *molecule_map;                 // molecule_map[atom_index] = molecule_index (-1 if not mapped)
   int *cg_atom_index;                // cg_atom_index[molecule_index] = CG atom local index (-1 if none)
+  tagint *mol_id_list;                // mol_id_list[molecule_index] = molecule ID
   int nmolecules;                    // Number of unique molecules
   int maxmolecule;                   // Maximum number of molecules (for array allocation)
 

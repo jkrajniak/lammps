@@ -45,6 +45,7 @@ class FixAdResSRegion : public Fix {
   // Access methods for other AdRes components
   int get_resolution(int) const;
   double get_lambda(int) const;
+  double get_lambda_cg(int) const;
 
  private:
   char *id_region_atomistic;

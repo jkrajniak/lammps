@@ -17,6 +17,7 @@
 #include "domain.h"
 #include "error.h"
 #include "memory.h"
+#include "modify.h"
 #include "region.h"
 #include "region_block.h"
 #include "region_sphere.h"
@@ -241,6 +242,39 @@ double FixAdResSRegion::get_lambda(int i) const
 {
   if (i < 0 || i >= atom->nmax) return 0.0;
   return lambda[i];
+}
+
+/* ---------------------------------------------------------------------- */
+
+double FixAdResSRegion::get_lambda_cg(int i) const
+{
+  if (i < 0 || i >= atom->nmax) return 0.0;
+  
+  double lambda_at = get_lambda(i);
+  
+  // Get CG type from fix adress/constraint if available
+  int cg_type = 0;
+  if (modify) {
+    for (int j = 0; j < modify->nfix; j++) {
+      Fix *fix = modify->fix[j];
+      if (strcmp(fix->style, "adress/constraint") == 0) {
+        int dim = 0;
+        int *cg_type_ptr = (int *) fix->extract("cg_type", dim);
+        if (cg_type_ptr) {
+          cg_type = *cg_type_ptr;
+          break;
+        }
+      }
+    }
+  }
+  
+  // If this is a CG particle, invert lambda: λ_CG = 1 - λ_AT
+  if (cg_type > 0 && atom->type[i] == cg_type) {
+    return 1.0 - lambda_at;
+  }
+  
+  // Atomistic particles use normal lambda
+  return lambda_at;
 }
 
 /* ---------------------------------------------------------------------- */
