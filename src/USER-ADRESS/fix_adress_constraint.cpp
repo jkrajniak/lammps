@@ -393,27 +393,135 @@ int FixAdResSConstraint::find_cg_particle_for_molecule(tagint mol_id)
 
 void FixAdResSConstraint::initial_integrate(int /*vflag*/)
 {
-  // Placeholder - will be implemented in Phase 2
-  // For now, just verify fix_region is available
+  // Called BEFORE normal integrator updates positions/velocities
+  // For CG region molecules: constrain atoms to follow COM before integration
+  // The normal integrator will update both CG particle and atoms, but we'll
+  // re-constrain atoms in post_force() after forces are computed
+  
   if (!fix_region) return;
+  
+  // Process each molecule
+  for (int mol_idx = 0; mol_idx < nmolecules; mol_idx++) {
+    // Check if molecule is in CG region
+    if (!is_molecule_in_cg_region(mol_idx)) continue;
+    
+    // Get COM from CG particle (current position, will be updated by integrator)
+    calculate_com_from_cg(mol_idx);
+    
+    // Constrain atom positions and velocities to follow COM
+    // This ensures atoms start from constrained positions before integrator runs
+    constrain_atoms_to_com(mol_idx);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixAdResSConstraint::post_force(int /*vflag*/)
 {
-  // Placeholder - will be implemented in Phase 2-4
-  // For now, just verify fix_region is available
+  // Called after force computation, before final_integrate()
+  // For CG region molecules: 
+  // 1. Calculate COM from CG particle (which has been updated by integrator)
+  // 2. Store relative positions if needed
+  // 3. Re-constrain atoms to follow updated COM (after integrator has moved them)
+  
   if (!fix_region) return;
+  
+  double **x = atom->x;
+  tagint *molecule = atom->molecule;
+  int *type = atom->type;
+  int nlocal = atom->nlocal;
+  int nall = nlocal + atom->nghost;
+  
+  // Process each molecule
+  for (int mol_idx = 0; mol_idx < nmolecules; mol_idx++) {
+    // Check if molecule is in CG region
+    if (!is_molecule_in_cg_region(mol_idx)) continue;
+    
+    // Calculate COM from CG particle (now updated by integrator)
+    calculate_com_from_cg(mol_idx);
+    
+    // Get COM position
+    double *x_com_mol = x_com[mol_idx];
+    
+    // Check if relative positions need to be stored
+    // Store if displace is effectively zero (hasn't been set yet)
+    bool need_store = false;
+    
+    // Check if any atom in this molecule has zero displace (indicating not stored yet)
+    for (int i = 0; i < nlocal; i++) {
+      if (molecule_map[i] == mol_idx && type[i] != cg_type) {
+        double disp_mag = displace[i][0]*displace[i][0] + 
+                          displace[i][1]*displace[i][1] + 
+                          displace[i][2]*displace[i][2];
+        if (disp_mag < 1.0e-10) {
+          need_store = true;
+          break;
+        }
+      }
+    }
+    
+    // Store relative positions if needed
+    if (need_store) {
+      for (int i = 0; i < nlocal; i++) {
+        if (molecule_map[i] != mol_idx) continue;
+        if (type[i] == cg_type) continue;  // Skip CG particles
+        
+        // Calculate relative position: displace = x_atom - x_com
+        // Handle periodic boundaries using minimum image convention
+        double dx[3];
+        dx[0] = x[i][0] - x_com_mol[0];
+        dx[1] = x[i][1] - x_com_mol[1];
+        dx[2] = x[i][2] - x_com_mol[2];
+        
+        // Apply minimum image convention to get shortest distance
+        domain->minimum_image(FLERR, dx[0], dx[1], dx[2]);
+        
+        // Store relative position
+        displace[i][0] = dx[0];
+        displace[i][1] = dx[1];
+        displace[i][2] = dx[2];
+      }
+    }
+    
+    // Re-constrain atoms to follow updated COM (after integrator has moved CG particle)
+    constrain_atoms_to_com(mol_idx);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixAdResSConstraint::final_integrate()
 {
-  // Placeholder - will be implemented in Phase 2
-  // For now, just verify fix_region is available
+  // Called AFTER normal integrator updates velocities
+  // For CG region molecules: constrain atom velocities to match COM velocity
+  
   if (!fix_region) return;
+  
+  // Process each molecule
+  for (int mol_idx = 0; mol_idx < nmolecules; mol_idx++) {
+    // Check if molecule is in CG region
+    if (!is_molecule_in_cg_region(mol_idx)) continue;
+    
+    // Get COM velocity from CG particle (updated by integrator)
+    calculate_com_from_cg(mol_idx);
+    
+    // Constrain atom velocities to match COM velocity
+    double **v = atom->v;
+    int *type = atom->type;
+    int nlocal = atom->nlocal;
+    double *v_com_mol = v_com[mol_idx];
+    
+    // Update velocities for all atoms in this molecule
+    for (int i = 0; i < nlocal; i++) {
+      if (molecule_map[i] != mol_idx) continue;
+      if (type[i] == cg_type) continue;  // Skip CG particles
+      
+      // Constrain atom velocity: v_atom = v_com
+      v[i][0] = v_com_mol[0];
+      v[i][1] = v_com_mol[1];
+      v[i][2] = v_com_mol[2];
+    }
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -592,8 +700,72 @@ void FixAdResSConstraint::calculate_com_from_cg(int mol_idx)
 
 void FixAdResSConstraint::constrain_atoms_to_com(int mol_idx)
 {
-  // Placeholder - will be implemented in Phase 2
-  // Constrain atoms to follow COM
+  // Constrain atoms in molecule to follow COM position and velocity
+  // Used for CG region where molecules move as rigid bodies
+  
+  if (mol_idx < 0 || mol_idx >= nmolecules) return;
+  
+  double **x = atom->x;
+  double **v = atom->v;
+  int *type = atom->type;
+  int nlocal = atom->nlocal;
+  
+  // Get COM position and velocity for this molecule
+  double *x_com_mol = x_com[mol_idx];
+  double *v_com_mol = v_com[mol_idx];
+  
+  // Iterate through all local atoms and constrain those in this molecule
+  for (int i = 0; i < nlocal; i++) {
+    // Check if atom belongs to this molecule
+    if (molecule_map[i] != mol_idx) continue;
+    
+    // Skip CG particles themselves (they are not constrained)
+    if (type[i] == cg_type) continue;
+    
+    // Constrain atom position: x_atom = x_com + displace
+    x[i][0] = x_com_mol[0] + displace[i][0];
+    x[i][1] = x_com_mol[1] + displace[i][1];
+    x[i][2] = x_com_mol[2] + displace[i][2];
+    
+    // Constrain atom velocity: v_atom = v_com
+    v[i][0] = v_com_mol[0];
+    v[i][1] = v_com_mol[1];
+    v[i][2] = v_com_mol[2];
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+bool FixAdResSConstraint::is_molecule_in_cg_region(int mol_idx)
+{
+  // Check if molecule is in CG region by checking lambda of representative atom
+  // Returns true if lambda < lambda_cg_threshold
+  
+  if (mol_idx < 0 || mol_idx >= nmolecules) return false;
+  if (!fix_region) return false;
+  
+  // Try to use CG particle as representative if available
+  int cg_idx = cg_atom_index[mol_idx];
+  if (cg_idx >= 0 && cg_idx < atom->nlocal + atom->nghost) {
+    double lambda = fix_region->get_lambda(cg_idx);
+    return (lambda < lambda_cg_threshold);
+  }
+  
+  // Otherwise, find first atom in molecule and check its lambda
+  tagint mol_id = mol_id_list[mol_idx];
+  if (mol_id == 0) return false;
+  
+  tagint *molecule = atom->molecule;
+  int nlocal = atom->nlocal;
+  
+  for (int i = 0; i < nlocal; i++) {
+    if (molecule[i] == mol_id) {
+      double lambda = fix_region->get_lambda(i);
+      return (lambda < lambda_cg_threshold);
+    }
+  }
+  
+  return false;
 }
 
 /* ---------------------------------------------------------------------- */
