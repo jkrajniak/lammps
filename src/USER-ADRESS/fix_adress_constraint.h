@@ -77,10 +77,11 @@ class FixAdResSConstraint : public Fix {
   void map_molecules();
   void calculate_com_from_atoms(int mol_idx);
   void calculate_com_from_cg(int mol_idx);
-  void constrain_atoms_to_com(int mol_idx);
+  void constrain_atoms_to_com(int mol_idx, bool constrain_velocities = true);
   void update_cg_from_com(int mol_idx);
   int find_cg_particle_for_molecule(tagint mol_id);
   bool is_molecule_in_cg_region(int mol_idx);
+  bool is_molecule_in_atomistic_region(int mol_idx);
 };
 
 }    // namespace LAMMPS_NS
