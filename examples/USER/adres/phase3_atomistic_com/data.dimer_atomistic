@@ -1,0 +1,23 @@
+# LAMMPS data file for Phase 3 atomistic COM tracking test
+# Simple dimer system: 2 atomistic atoms (type 1) + 1 CG particle (type 2)
+# All molecules in atomistic region (x >= 10.0)
+# Box: 20 x 20 x 20 LJ units
+# Format: id mol type x y z
+
+3 atoms
+2 atom types
+
+0.0 20.0 xlo xhi
+0.0 20.0 ylo yhi
+0.0 20.0 zlo zhi
+
+Masses
+
+1 1.0    # Atomistic atoms
+2 2.0    # CG particles (mass = sum of 2 atoms)
+
+Atoms # molecular
+
+1 1 1 12.0 10.0 10.0
+2 1 1 13.0 10.0 10.0
+3 1 2 12.5 10.0 10.0

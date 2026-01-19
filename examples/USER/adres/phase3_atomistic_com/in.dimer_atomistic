@@ -1,0 +1,118 @@
+# LAMMPS input script for Phase 3 Atomistic COM Tracking test
+# Simple dimer system to verify:
+# 1. CG particles track COM of molecules in atomistic region
+# 2. COM calculation is accurate (within 1e-6 precision)
+# 3. CG particle position and velocity match COM
+#
+# System: 1 dimer (2 atoms + 1 CG particle) in atomistic region
+# Atom types: 1 = atomistic atom, 2 = CG particle
+# Molecule ID: 1
+
+# ============================================================================
+# Initialization
+# ============================================================================
+
+units           lj
+atom_style      molecular
+dimension       3
+boundary        p p p
+
+# ============================================================================
+# Read system configuration
+# ============================================================================
+
+read_data       data.dimer_atomistic
+
+# Masses
+mass            1 1.0   # Atomistic atoms
+mass            2 2.0   # CG particles (mass = sum of 2 atoms)
+
+# ============================================================================
+# AdResS region definitions
+# ============================================================================
+# Define regions along x-axis:
+# CG region: x < 5.0
+# Transition region: 5.0 <= x < 10.0
+# Atomistic region: x >= 10.0 (contains our dimer)
+
+region          cg block 0.0 5.0 0.0 20.0 0.0 20.0
+region          transition block 5.0 10.0 0.0 20.0 0.0 20.0
+region          atomistic block 10.0 20.0 0.0 20.0 0.0 20.0
+
+# ============================================================================
+# Pair interactions
+# ============================================================================
+
+# Simple LJ potential for both atomistic and CG
+# Cutoff: 3.0
+variable        cutoff equal 3.0
+
+# AdResS pair style
+pair_style      adress ${cutoff} lj/cut ${cutoff} lj/cut ${cutoff}
+
+# Pair coefficients
+# Atomistic: epsilon=1.0, sigma=1.0
+# CG: epsilon=2.0, sigma=1.5 (stronger, larger)
+pair_coeff      * * atomistic 1.0 1.0 ${cutoff} cg 2.0 1.5 ${cutoff} fix 1
+
+# ============================================================================
+# Neighbor settings
+# ============================================================================
+
+neighbor        2.0 bin
+neigh_modify    delay 0 every 1 check yes
+
+# ============================================================================
+# AdResS fixes
+# ============================================================================
+
+# Region management: calculate lambda values
+fix             1 all adress/region atomistic transition cg x
+
+# COM tracking and constraints (handles both CG and atomistic regions)
+# Syntax: fix ID group-ID adress/constraint fix-region-ID cg-type
+fix             2 all adress/constraint 1 2
+
+# ============================================================================
+# Integration
+# ============================================================================
+
+timestep        0.005
+
+# Velocity initialization
+velocity        all create 1.0 12345
+
+# NVE integration
+fix             3 all nve
+
+# ============================================================================
+# Output
+# ============================================================================
+
+# Compute for statistics
+compute         adress_stats all adress/stats 1
+
+# Thermo output
+thermo_style    custom step temp pe ke etotal c_adress_stats[1] c_adress_stats[2] c_adress_stats[3]
+thermo          10
+
+# Dump trajectory (include velocities for verification)
+dump            1 all custom 50 dimer_atomistic.dump id type mol x y z vx vy vz
+
+# ============================================================================
+# Run
+# ============================================================================
+
+run             1000
+
+# ============================================================================
+# Verification
+# ============================================================================
+# Automated verification:
+#   python3 verify_com_tracking.py
+#
+# Manual verification:
+#   - Check dimer_atomistic.dump: CG particle should track COM
+#   - COM position should match: (m1*x1 + m2*x2) / (m1 + m2)
+#   - COM velocity should match: (m1*v1 + m2*v2) / (m1 + m2)
+#   - Precision: within 1e-6
