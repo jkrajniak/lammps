@@ -1,0 +1,162 @@
+# LAMMPS input script for Phase 4 Transition Region Interpolation Integration Test
+# Tests molecules moving through all three regions (CG → transition → atomistic)
+# Verifies:
+# 1. Smooth transitions between regions without discontinuities
+# 2. All three constraint mechanisms work correctly
+# 3. Interpolation is continuous at region boundaries
+# 4. Molecules can transition in both directions
+#
+# System: 1 dimer (2 atoms + 1 CG particle) that moves through all regions
+# Atom types: 1 = atomistic atom, 2 = CG particle
+# Molecule ID: 1
+
+# ============================================================================
+# Initialization
+# ============================================================================
+
+units           lj
+atom_style      molecular
+dimension       3
+boundary        p p p
+
+# ============================================================================
+# Read system configuration
+# ============================================================================
+
+read_data       data.region_transitions
+
+# Masses
+mass            1 1.0   # Atomistic atoms
+mass            2 2.0   # CG particles (mass = sum of 2 atoms)
+
+# ============================================================================
+# AdResS region definitions
+# ============================================================================
+# Define regions along x-axis with periodic wrapping:
+# For a 20-unit box, organize regions symmetrically to avoid jumps at boundaries:
+# Layout: CG → Transition → Atomistic → Transition → CG (wrapping)
+# CG region: 0.0-5.0 and 15.0-20.0 (edges, wraps around)
+# Transition region: 5.0-7.5 and 12.5-15.0 (adjacent to CG, wraps around)
+# Atomistic region: 7.5-12.5 (center)
+# This ensures when crossing from x=20 to x=0, you go from CG to CG (no jump)
+# Molecule starts at x=2.5 (CG region) and will move through all regions
+
+# CG regions (left and right edges, wrapping around)
+region          cg1 block 0.0 5.0 0.0 20.0 0.0 20.0
+region          cg2 block 15.0 20.0 0.0 20.0 0.0 20.0
+region          cg union 2 cg1 cg2
+
+# Transition regions (adjacent to CG regions on both sides)
+region          transition1 block 5.0 7.5 0.0 20.0 0.0 20.0
+region          transition2 block 12.5 15.0 0.0 20.0 0.0 20.0
+region          transition union 2 transition1 transition2
+
+# Atomistic region (center, between transition regions)
+region          atomistic block 7.5 12.5 0.0 20.0 0.0 20.0
+
+# ============================================================================
+# Pair interactions
+# ============================================================================
+
+# Simple LJ potential for both atomistic and CG
+# Cutoff: 3.0
+variable        cutoff equal 3.0
+
+# AdResS pair style
+pair_style      adress ${cutoff} lj/cut ${cutoff} lj/cut ${cutoff}
+
+# Pair coefficients
+# Atomistic: epsilon=1.0, sigma=1.0
+# CG: epsilon=2.0, sigma=1.5 (stronger, larger)
+pair_coeff      * * atomistic 1.0 1.0 ${cutoff} cg 2.0 1.5 ${cutoff} fix 1
+
+# ============================================================================
+# Neighbor settings
+# ============================================================================
+
+neighbor        2.0 bin
+neigh_modify    delay 0 every 1 check yes
+
+# ============================================================================
+# AdResS fixes
+# ============================================================================
+
+# Region management: calculate lambda values
+fix             1 all adress/region atomistic transition cg x
+
+# COM tracking and constraints (handles all three regions: CG, transition, atomistic)
+# Syntax: fix ID group-ID adress/constraint fix-region-ID cg-type
+# Lambda thresholds: CG < 0.1, Transition: 0.1 <= lambda < 0.9, Atomistic >= 0.9
+fix             2 all adress/constraint 1 2 lambda_cg 0.1 lambda_at 0.9
+
+# ============================================================================
+# Integration
+# ============================================================================
+
+timestep        0.005
+
+# Velocity initialization - give molecule velocity in +x direction to move through regions
+# Set velocity directly with larger x-component to ensure molecule moves through all regions
+velocity        all set 3.0 0.0 0.0
+
+# NVE integration
+fix             3 all nve
+
+# ============================================================================
+# Output
+# ============================================================================
+
+# Compute for statistics
+compute         adress_stats all adress/stats 1
+
+# Thermo output
+thermo_style    custom step temp pe ke etotal c_adress_stats[1] c_adress_stats[2] c_adress_stats[3]
+thermo          10
+
+# Dump trajectory (include velocities for verification)
+dump            1 all custom 50 region_transitions.dump id type mol x y z vx vy vz
+
+# ============================================================================
+# Run
+# ============================================================================
+
+# Run for 2000 steps to allow molecule to move through all regions
+run             2000
+
+# ============================================================================
+# Verification
+# ============================================================================
+# Automated verification:
+#   python3 verify_region_transitions.py
+#
+# Manual verification:
+#   - Check region_transitions.dump: molecule should move smoothly through regions
+#   - Verify no discontinuities in positions or velocities at region boundaries
+#   - Check that constraint mechanism switches correctly:
+#     * CG region: atoms follow CG particle (rigid body)
+#     * Transition region: positions/velocities interpolated
+#     * Atomistic region: CG particle follows COM
+#   - Verify continuity at boundaries (lambda = 0.1 and lambda = 0.9)
+
+print "=========================================="
+print "Phase 4 Transition Region Interpolation Integration Test"
+print "=========================================="
+print "Total atoms: $(atoms)"
+print "Atomistic region atoms: $(c_adress_stats[1])"
+print "Transition region atoms: $(c_adress_stats[2])"
+print "CG region atoms: $(c_adress_stats[3])"
+print ""
+print "Verification:"
+print "  1. Check that molecule moves smoothly through all three regions"
+print "  2. Verify no discontinuities at region boundaries"
+print "  3. Verify interpolation is continuous (lambda = 0.1 and 0.9)"
+print "  4. Check that all three constraint mechanisms work correctly"
+print ""
+print "Automated verification:"
+print "  python3 verify_region_transitions.py"
+print ""
+print "Manual verification:"
+print "  - Check region_transitions.dump for smooth transitions"
+print "  - Verify positions/velocities are continuous at boundaries"
+print "  - Check that constraint behavior matches region (CG/transition/atomistic)"
+print "=========================================="

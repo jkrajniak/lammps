@@ -1,0 +1,131 @@
+# LAMMPS input script for AdResS LJ dimer simulation
+# Atomistic: LJ dimers (two particles connected by bond)
+# CG: Single LJ bead representing the dimer
+
+# ============================================================================
+# Initialization
+# ============================================================================
+
+units           real
+atom_style      full
+dimension       3
+boundary        p p p
+
+# ============================================================================
+# Read system configuration
+# ============================================================================
+
+read_data       data.lj_dimer.adress
+reset_timestep  0
+
+# ============================================================================
+# Force field parameters
+# ============================================================================
+
+# Bond parameters: harmonic bond between dimer particles (atomistic only)
+bond_style      harmonic
+bond_coeff      1 100.0 2.0
+
+# Pair interactions: AdResS with LJ for both atomistic and CG
+variable        cutoff equal 10.0
+variable        epsilon equal 0.238  # kcal/mol
+variable        sigma equal 3.4      # Angstrom
+
+# AdResS pair style: atomistic uses lj/cut, CG uses lj/cut (same potential, different particles)
+pair_style      adress ${cutoff} lj/cut ${cutoff} lj/cut ${cutoff}
+
+# Pair coefficients
+# Atomistic: types 1-2 interact with LJ
+# CG: type 3 interacts with LJ
+# Mixed: atomistic-CG interactions (zero for now, can be set if needed)
+pair_coeff      1 1 atomistic ${epsilon} ${sigma} ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1  # Type 1 - Type 1
+pair_coeff      1 2 atomistic ${epsilon} ${sigma} ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1  # Type 1 - Type 2
+pair_coeff      2 2 atomistic ${epsilon} ${sigma} ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1  # Type 2 - Type 2
+pair_coeff      1 3 atomistic 0.0 0.0 ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1  # Type 1 - CG (no atomistic interaction)
+pair_coeff      2 3 atomistic 0.0 0.0 ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1  # Type 2 - CG (no atomistic interaction)
+pair_coeff      3 3 atomistic 0.0 0.0 ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1  # CG - CG
+
+# ============================================================================
+# Communication and neighbor settings
+# ============================================================================
+
+comm_modify     cutoff 12.0
+neighbor        2.0 bin
+neigh_modify    every 20 delay 0 check yes
+
+# ============================================================================
+# AdResS region definitions
+# ============================================================================
+
+variable        box_size equal 20.0
+variable        at_center equal ${box_size}/2.0
+variable        at_width equal 8.0   # Width of atomistic region
+variable        trans_width equal 2.0  # Width of transition region
+
+variable        at_xlo equal ${at_center}-${at_width}/2.0
+variable        at_xhi equal ${at_center}+${at_width}/2.0
+variable        trans1_xlo equal ${at_xlo}-${trans_width}
+variable        trans1_xhi equal ${at_xlo}
+variable        trans2_xlo equal ${at_xhi}
+variable        trans2_xhi equal ${at_xhi}+${trans_width}
+
+region          atomistic block ${at_xlo} ${at_xhi} 0.0 ${box_size} 0.0 ${box_size}
+region          transition1 block ${trans1_xlo} ${trans1_xhi} 0.0 ${box_size} 0.0 ${box_size}
+region          transition2 block ${trans2_xlo} ${trans2_xhi} 0.0 ${box_size} 0.0 ${box_size}
+region          cg1 block 0.0 ${trans1_xlo} 0.0 ${box_size} 0.0 ${box_size}
+region          cg2 block ${trans2_xhi} ${box_size} 0.0 ${box_size} 0.0 ${box_size}
+region          transition union 2 transition1 transition2
+region          cg union 2 cg1 cg2
+
+# ============================================================================
+# AdResS fixes
+# ============================================================================
+
+fix             1 all adress/region atomistic transition cg x
+fix             2 all adress/thermo transition ${trans_width} fix 1
+
+# ============================================================================
+# Thermostat and integration
+# ============================================================================
+
+variable        temp equal 298.0
+timestep        1.0
+
+fix             3 all nve
+fix             4 all langevin ${temp} ${temp} 1.0 12345 zero yes
+
+# ============================================================================
+# Output
+# ============================================================================
+
+compute         adress_stats all adress/stats 1
+thermo_style    custom step temp pe ke etotal press c_adress_stats[1] c_adress_stats[2] c_adress_stats[3]
+thermo          100
+
+dump            1 all custom 100 traj.lmp id type x y z
+dump_modify     1 element A A CG
+
+# ============================================================================
+# Energy minimization
+# ============================================================================
+
+velocity        all zero linear
+velocity        all zero angular
+min_style       cg
+minimize        1.0e-4 1.0e-6 10000 100000
+
+# ============================================================================
+# Equilibration and production
+# ============================================================================
+
+velocity        all create ${temp} 12345 rot yes dist gaussian
+run             2000
+
+# Write restart for density profile analysis
+write_restart   restart.final
+
+print "AdResS LJ dimer simulation completed"
+print "Final atomistic region atoms: $(c_adress_stats[1])"
+print "Final transition region atoms: $(c_adress_stats[2])"
+print "Final CG region atoms: $(c_adress_stats[3])"
+

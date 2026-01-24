@@ -1,0 +1,107 @@
+# LAMMPS input script to compute density profile for AdResS validation
+# This script reads a restart file and computes density along x-axis
+
+# ============================================================================
+# Initialization
+# ============================================================================
+
+units           real
+atom_style      full
+dimension       3
+boundary        p p p
+
+# ============================================================================
+# Read restart file from main simulation
+# ============================================================================
+
+read_restart    restart.final
+
+# ============================================================================
+# Recreate pair style and fixes (needed after read_restart)
+# ============================================================================
+
+# Variables
+variable        cutoff equal 10.0
+variable        epsilon equal 0.238
+variable        sigma equal 3.4
+variable        temp equal 298.0
+variable        trans_width equal 2.0
+variable        box_size equal 20.0
+
+# Pair style
+pair_style      adress ${cutoff} lj/cut ${cutoff} lj/cut ${cutoff}
+
+# Pair coefficients
+pair_coeff      1 1 atomistic ${epsilon} ${sigma} ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1
+pair_coeff      1 2 atomistic ${epsilon} ${sigma} ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1
+pair_coeff      2 2 atomistic ${epsilon} ${sigma} ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1
+pair_coeff      1 3 atomistic 0.0 0.0 ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1
+pair_coeff      2 3 atomistic 0.0 0.0 ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1
+pair_coeff      3 3 atomistic 0.0 0.0 ${cutoff} cg ${epsilon} ${sigma} ${cutoff} fix 1
+
+# Communication and neighbor settings
+comm_modify     cutoff 12.0
+neighbor        2.0 bin
+neigh_modify    every 20 delay 0 check yes
+
+# AdResS fixes
+variable        at_center equal ${box_size}/2.0
+variable        at_width equal 8.0
+variable        at_xlo equal ${at_center}-${at_width}/2.0
+variable        at_xhi equal ${at_center}+${at_width}/2.0
+variable        trans1_xlo equal ${at_xlo}-${trans_width}
+variable        trans1_xhi equal ${at_xlo}
+variable        trans2_xlo equal ${at_xhi}
+variable        trans2_xhi equal ${at_xhi}+${trans_width}
+
+region          atomistic block ${at_xlo} ${at_xhi} 0.0 ${box_size} 0.0 ${box_size}
+region          transition1 block ${trans1_xlo} ${trans1_xhi} 0.0 ${box_size} 0.0 ${box_size}
+region          transition2 block ${trans2_xlo} ${trans2_xhi} 0.0 ${box_size} 0.0 ${box_size}
+region          cg1 block 0.0 ${trans1_xlo} 0.0 ${box_size} 0.0 ${box_size}
+region          cg2 block ${trans2_xhi} ${box_size} 0.0 ${box_size} 0.0 ${box_size}
+region          transition union 2 transition1 transition2
+region          cg union 2 cg1 cg2
+
+fix             1 all adress/region atomistic transition cg x
+fix             2 all adress/thermo transition ${trans_width} fix 1
+
+# ============================================================================
+# Density profile computation
+# ============================================================================
+
+# Number of bins along x-axis
+variable        nbins equal 100
+variable        delta equal ${box_size}/${nbins}
+
+# Compute chunk/atom to bin atoms along x-axis
+compute         chunkID all chunk/atom bin/1d x lower ${delta} bound x 0.0 ${box_size}
+
+# Compute number density in each bin
+fix             density_profile all ave/chunk 1 1 1 chunkID density/number file density_profile.dat
+
+# For atomistic particles only (types 1, 2)
+group           atomistic_group type 1 2
+compute         chunkID_at atomistic_group chunk/atom bin/1d x lower ${delta} bound x 0.0 ${box_size}
+fix             density_at atomistic_group ave/chunk 1 1 1 chunkID_at density/number file density_atomistic.dat
+
+# For CG particles only (type 3)
+group           cg_group type 3
+compute         chunkID_cg cg_group chunk/atom bin/1d x lower ${delta} bound x 0.0 ${box_size}
+fix             density_cg cg_group ave/chunk 1 1 1 chunkID_cg density/number file density_cg.dat
+
+# ============================================================================
+# Run a short simulation to collect statistics
+# ============================================================================
+
+fix             3 all nve
+fix             4 all langevin ${temp} ${temp} 1.0 12345 zero yes
+
+timestep        1.0
+run             100
+
+print "Density profile computation completed"
+print "Results written to:"
+print "  - density_profile.dat (total density)"
+print "  - density_atomistic.dat (atomistic particles only)"
+print "  - density_cg.dat (CG particles only)"
+

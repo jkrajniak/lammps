@@ -1,0 +1,126 @@
+# LAMMPS input script for Phase 1 AdResS test
+# Simple dimer system to verify:
+# 1. Lambda assignment for CG particles (get_lambda_cg)
+# 2. Molecule mapping with MPI support
+# 3. COM calculation infrastructure
+#
+# System: 4 dimers (8 atoms + 4 CG particles) in a box
+# Atom types: 1 = atomistic atom, 2 = CG particle
+# Molecule IDs: 1-4 (one CG particle per molecule)
+
+# ============================================================================
+# Initialization
+# ============================================================================
+
+units           lj
+atom_style      molecular
+dimension       3
+boundary        p p p
+
+# ============================================================================
+# Read system configuration
+# ============================================================================
+
+read_data       data.phase1_test
+
+# Masses
+mass            1 1.0   # Atomistic atoms
+mass            2 2.0   # CG particles (mass = sum of 2 atoms)
+
+# ============================================================================
+# AdResS region definitions
+# ============================================================================
+# Define regions along x-axis:
+# CG region: x < 5.0
+# Transition region: 5.0 <= x < 10.0
+# Atomistic region: x >= 10.0
+
+region          cg block 0.0 5.0 0.0 20.0 0.0 20.0
+region          transition block 5.0 10.0 0.0 20.0 0.0 20.0
+region          atomistic block 10.0 20.0 0.0 20.0 0.0 20.0
+
+# ============================================================================
+# Pair interactions
+# ============================================================================
+
+# Simple LJ potential for both atomistic and CG
+# Cutoff: 3.0
+variable        cutoff equal 3.0
+
+# AdResS pair style
+pair_style      adress ${cutoff} lj/cut ${cutoff} lj/cut ${cutoff}
+
+# Pair coefficients
+# Atomistic: epsilon=1.0, sigma=1.0
+# CG: epsilon=2.0, sigma=1.5 (stronger, larger)
+pair_coeff      * * atomistic 1.0 1.0 ${cutoff} cg 2.0 1.5 ${cutoff} fix 1
+
+# ============================================================================
+# Neighbor settings
+# ============================================================================
+
+neighbor        0.3 bin
+neigh_modify    every 20 delay 0 check yes
+
+# ============================================================================
+# AdResS fixes
+# ============================================================================
+
+# Fix for AdResS region management (must be before constraint)
+fix             1 all adress/region atomistic transition cg x
+
+# Fix for AdResS constraints (Phase 1: COM calculation infrastructure)
+# CG type = 2
+fix             2 all adress/constraint 1 2
+
+# ============================================================================
+# Integration
+# ============================================================================
+
+timestep        0.005
+
+# Velocity initialization
+velocity        all create 1.0 12345
+
+# NVE integration
+fix             3 all nve
+
+# ============================================================================
+# Output
+# ============================================================================
+
+# Compute for statistics
+compute         adress_stats all adress/stats 1
+
+# Thermo output
+thermo_style    custom step temp pe ke etotal c_adress_stats[1] c_adress_stats[2] c_adress_stats[3]
+thermo          10
+
+# Dump trajectory
+dump            1 all custom 50 phase1_test.dump id type mol x y z
+
+# ============================================================================
+# Run
+# ============================================================================
+
+# Run for 100 steps to verify Phase 1 functionality
+run             100
+
+# ============================================================================
+# Verification output
+# ============================================================================
+
+print "=========================================="
+print "Phase 1 Test Completed"
+print "=========================================="
+print "Total atoms: $(atoms)"
+print "Atomistic region atoms: $(c_adress_stats[1])"
+print "Transition region atoms: $(c_adress_stats[2])"
+print "CG region atoms: $(c_adress_stats[3])"
+print ""
+print "If you see this message, Phase 1 implementation is working!"
+print "Check that:"
+print "  1. Lambda assignment for CG particles works (get_lambda_cg)"
+print "  2. Molecule mapping completed successfully"
+print "  3. COM calculation infrastructure is ready"
+print "=========================================="

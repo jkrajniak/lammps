@@ -1,0 +1,75 @@
+# LAMMPS input script for atomistic LJ dimer simulation
+# Used for equilibration before AdResS simulation
+
+# ============================================================================
+# Initialization
+# ============================================================================
+
+units           real
+atom_style      full
+dimension       3
+boundary        p p p
+
+# ============================================================================
+# Read system configuration
+# ============================================================================
+
+read_data       data.lj_dimer.atomistic
+
+# ============================================================================
+# Force field parameters
+# ============================================================================
+
+# Bond parameters: harmonic bond between dimer particles
+# k = 100 kcal/mol/Angstrom^2, r0 = 2.0 Angstrom
+bond_style      harmonic
+bond_coeff      1 100.0 2.0
+
+# Pair interactions: LJ
+# sigma = 3.4 Angstrom, epsilon = 0.238 kcal/mol
+variable        cutoff equal 10.0
+variable        epsilon equal 0.238
+variable        sigma equal 3.4
+pair_style      lj/cut ${cutoff}
+pair_coeff      1 1 ${epsilon} ${sigma} ${cutoff}  # Type 1 - Type 1
+pair_coeff      1 2 ${epsilon} ${sigma} ${cutoff}  # Type 1 - Type 2
+pair_coeff      2 2 ${epsilon} ${sigma} ${cutoff}  # Type 2 - Type 2
+
+# ============================================================================
+# Neighbor and communication settings
+# ============================================================================
+
+neighbor        2.0 bin
+neigh_modify    every 20 delay 0 check yes
+comm_modify     cutoff 12.0
+
+# ============================================================================
+# Thermostat and integration
+# ============================================================================
+
+variable        temp equal 298.0
+timestep        1.0
+
+fix             1 all nve
+fix             2 all langevin ${temp} ${temp} 1.0 12345 zero yes
+
+# ============================================================================
+# Output
+# ============================================================================
+
+thermo_style    custom step temp pe ke etotal press
+thermo          100
+
+# ============================================================================
+# Equilibration
+# ============================================================================
+
+velocity        all create ${temp} 12345 rot yes dist gaussian
+run             1000
+
+# Write restart for AdResS initialization
+write_restart   restart.equilibrated
+write_data     data.lj_dimer.equilibrated
+
+print "Atomistic equilibration completed"
+

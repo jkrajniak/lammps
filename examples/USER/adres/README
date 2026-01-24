@@ -1,0 +1,54 @@
+AdResS Package Test Examples
+===========================
+
+This directory contains example input scripts for testing the AdResS package.
+
+Quick Test
+----------
+
+1. Build LAMMPS with the AdResS package:
+
+   Traditional make:
+   ```bash
+   cd src
+   make yes-adress
+   make <machine>
+   ```
+
+   CMake:
+   ```bash
+   cd build
+   cmake -D PKG_USER-ADRES=on ../cmake
+   make
+   ```
+
+2. Run the simple test:
+   ```bash
+   lmp_<machine> -in examples/USER/adress/in.adress.test
+   ```
+
+3. Check the output:
+   - The script should run without errors
+   - You should see output showing atoms in different regions
+   - The compute adress/stats should show counts for each region
+
+What to Look For
+----------------
+
+Successful test output should include:
+- No error messages about unknown commands
+- Thermo output showing step, temperature, energy, and region counts
+- Final message: "AdResS package test completed successfully!"
+- Region atom counts (c_1[1], c_1[2], c_1[3]) should be non-zero
+
+Troubleshooting
+---------------
+
+If you get "unknown command" errors:
+- Make sure the package is installed: `make package-status` should show "Installed YES: package adress"
+- Rebuild LAMMPS after installing the package
+
+If you get compilation errors:
+- Check that all source files are in src/USER-ADRES/
+- Verify the package is listed in src/Makefile (for traditional make) or cmake/CMakeLists.txt (for CMake)
+
