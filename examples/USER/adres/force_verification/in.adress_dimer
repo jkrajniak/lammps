@@ -1,0 +1,111 @@
+# LAMMPS input script for AdResS dimer simulation
+# Force-based AdResS with thermodynamic force table
+
+# ============================================
+# Initialization
+# ============================================
+units           lj
+atom_style      molecular
+boundary        p p p
+
+# ============================================
+# Read system configuration
+# ============================================
+read_data       system.data
+
+# ============================================
+# Force field setup
+# ============================================
+bond_style      harmonic
+bond_coeff      1 500.0 0.97
+
+pair_style      lj/cut 2.5
+pair_coeff      1 1 1.0 1.0 2.5
+
+# Exclude intra-molecular interactions (1-2 exclusion)
+special_bonds   lj 0.0 0.0 0.0 coul 0.0 0.0 0.0
+
+# ============================================
+# AdResS Zone Definitions
+# ============================================
+# Define regions for Atomistic (center), Hybrid (flanks), and CG (edges)
+# Assuming box is elongated along x-axis (30 x 10 x 10)
+
+variable        xlo equal 0.0
+variable        xhi equal 30.0
+variable        ylo equal 0.0
+variable        yhi equal 10.0
+variable        zlo equal 0.0
+variable        zhi equal 10.0
+
+# Zone boundaries (adjust as needed)
+variable        x_atomistic_lo equal 10.0
+variable        x_atomistic_hi equal 20.0
+variable        x_hybrid_lo equal 5.0
+variable        x_hybrid_hi equal 25.0
+
+# Define regions
+region          atomistic_zone block ${x_atomistic_lo} ${x_atomistic_hi} ${ylo} ${yhi} ${zlo} ${zhi}
+region          hybrid_zone block ${x_hybrid_lo} ${x_hybrid_hi} ${ylo} ${yhi} ${zlo} ${zhi}
+region          cg_zone block ${xlo} ${xhi} ${ylo} ${yhi} ${zlo} ${zhi}
+
+# ============================================
+# Thermodynamic Force (AdResS)
+# ============================================
+# CUSTOM ADRESS FIX HERE
+# This is where the custom fix would read thermo_force.table
+# For now, we'll use a placeholder comment
+# The fix should:
+#   1. Read thermo_force.table file
+#   2. Apply thermodynamic force based on spatial position
+#   3. Integrate with AdResS zone definitions
+
+# Example of how it might be called (commented out):
+# fix adress all adress/force thermo_force.table x 0.0 30.0
+
+# ============================================
+# Integration settings
+# ============================================
+timestep        0.005
+
+# ============================================
+# Minimization (remove overlaps)
+# ============================================
+# First minimize to remove any overlaps
+minimize        1.0e-4 1.0e-6 1000 10000
+
+# ============================================
+# Equilibration
+# ============================================
+# Create velocities and equilibrate the system
+velocity        all create 1.0 12345
+fix             nvt all nvt temp 1.0 1.0 0.1
+run             5000
+unfix           nvt
+
+# ============================================
+# Output settings
+# ============================================
+# Dump trajectory
+dump            1 all custom 1000 dimer.dump id type x y z
+
+# Density profile along x-axis
+# Use coarser binning: 0.1 gives 300 bins for 30-unit box (more reasonable)
+compute         density_profile all chunk/atom bin/1d x lower 0.1
+# Sample every 100 steps, average over 10 samples, output every 1000 steps
+# Use density/number to get atom count per bin (will convert to density in Python)
+fix             ave_density all ave/chunk 100 10 1000 density_profile density/number file density_profile.dat
+
+# Thermodynamic output
+thermo          100
+thermo_style    custom step temp pe ke etotal density
+thermo_modify   flush yes
+
+# ============================================
+# Run simulation
+# ============================================
+run             10000
+
+# Final output
+print           "Simulation complete"
+print           "Density profile written to density_profile.dat"
