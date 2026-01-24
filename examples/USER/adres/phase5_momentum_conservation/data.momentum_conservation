@@ -1,0 +1,35 @@
+# LAMMPS data file for Phase 5 momentum conservation verification test
+# System: 3 dimers (each: 2 atomistic atoms + 1 CG particle)
+# Dimers positioned at different x-coordinates in transition region
+# This ensures pairs with different lambda values (lambda_i != lambda_j)
+# Box: 20 x 20 x 20 LJ units
+# Format: id mol type x y z
+#
+# Transition region: 5.0 <= x < 7.5 (left) and 12.5 <= x < 15.0 (right)
+# Dimer 1: x=5.5 (lambda ≈ 0.04: d=0.2, lambda=d²=0.04)
+# Dimer 2: x=6.25 (lambda ≈ 0.25: d=0.5, lambda=d²=0.25)
+# Dimer 3: x=7.0 (lambda ≈ 0.64: d=0.8, lambda=d²=0.64)
+
+9 atoms
+2 atom types
+
+0.0 20.0 xlo xhi
+0.0 20.0 ylo yhi
+0.0 20.0 zlo zhi
+
+Masses
+
+1 1.0    # Atomistic atoms
+2 2.0    # CG particles (mass = sum of 2 atoms)
+
+Atoms # molecular
+
+1 1 1 5.3 10.0 10.0
+2 1 1 5.7 10.0 10.0
+3 1 2 5.5 10.0 10.0
+4 2 1 6.0 10.0 10.0
+5 2 1 6.5 10.0 10.0
+6 2 2 6.25 10.0 10.0
+7 3 1 6.8 10.0 10.0
+8 3 1 7.2 10.0 10.0
+9 3 2 7.0 10.0 10.0

@@ -169,12 +169,27 @@ void PairAdResS::compute(int eflag, int vflag)
     }
   }
 
-  // Interpolate forces based on lambda
-  interpolate_forces();
+  // Combine forces: f_atomistic and f_cg are already weighted at pair level
+  // F_pair = w_ij * F_atom + (1 - w_ij) * F_cg
+  // Since forces are already weighted, we simply add them
+  double **f = atom->f;
+  for (int i = 0; i < nall; i++) {
+    f[i][0] = f_atomistic[i][0] + f_cg[i][0];
+    f[i][1] = f_atomistic[i][1] + f_cg[i][1];
+    f[i][2] = f_atomistic[i][2] + f_cg[i][2];
+  }
 
-  // Interpolate energy and virial
-  if (eflag) interpolate_energy();
-  if (vflag) interpolate_virial();
+  // Energy and virial are already weighted during pair accumulation
+  // Just copy them from sub-styles (they already contain weighted values)
+  if (eflag) {
+    eng_vdwl = pair_atomistic->eng_vdwl + pair_cg->eng_vdwl;
+    eng_coul = pair_atomistic->eng_coul + pair_cg->eng_coul;
+  }
+  if (vflag) {
+    for (int n = 0; n < 6; n++) {
+      virial[n] = pair_atomistic->virial[n] + pair_cg->virial[n];
+    }
+  }
 
   if (vflag_fdotr) virial_fdotr_compute();
 }
@@ -503,31 +518,22 @@ double PairAdResS::switching_function(double r, double rcut, double lambda)
 
 void PairAdResS::interpolate_forces()
 {
-  // Interpolate forces based on per-atom lambda values
-  // F = lambda * F_at + (1 - lambda) * F_cg
+  // NOTE: This function is deprecated. Forces are now weighted at the pair level
+  // in compute_AT_force_pair() and compute_CG_force_pair() using symmetric pair-weighting.
+  // This function is kept for backward compatibility but simply adds the already-weighted forces.
+  //
+  // The correct approach (now used in compute()):
+  // F_pair = w_i * w_j * F_atom + (1 - w_i * w_j) * F_cg
+  // This ensures F_ij = -F_ji (Newton's Third Law)
   
   double **f = atom->f;
-  const int nlocal = atom->nlocal;
-  const int nall = nlocal + atom->nghost;
+  const int nall = atom->nlocal + atom->nghost;
 
-  if (!fix_region) {
-    // No lambda values - use equal weighting
-    for (int i = 0; i < nall; i++) {
-      f[i][0] = 0.5 * (f_atomistic[i][0] + f_cg[i][0]);
-      f[i][1] = 0.5 * (f_atomistic[i][1] + f_cg[i][1]);
-      f[i][2] = 0.5 * (f_atomistic[i][2] + f_cg[i][2]);
-    }
-    return;
-  }
-
-  // Interpolate based on per-atom lambda
-  // Use get_lambda_cg() which returns inverted lambda for CG particles
+  // Forces are already weighted at pair level, so just add them
   for (int i = 0; i < nall; i++) {
-    double lambda_i = fix_region->get_lambda_cg(i);
-    
-    f[i][0] = lambda_i * f_atomistic[i][0] + (1.0 - lambda_i) * f_cg[i][0];
-    f[i][1] = lambda_i * f_atomistic[i][1] + (1.0 - lambda_i) * f_cg[i][1];
-    f[i][2] = lambda_i * f_atomistic[i][2] + (1.0 - lambda_i) * f_cg[i][2];
+    f[i][0] = f_atomistic[i][0] + f_cg[i][0];
+    f[i][1] = f_atomistic[i][1] + f_cg[i][1];
+    f[i][2] = f_atomistic[i][2] + f_cg[i][2];
   }
 }
 
@@ -808,6 +814,19 @@ void PairAdResS::compute_AT_force_pair(int i, int j, double rsq,
   double energy = pair_atomistic->single(i, j, itype, jtype, rsq, 
                                           factor_coul, factor_lj, fpair);
   
+  // Apply symmetric pair-weighting: w_ij = w_i * w_j
+  // This ensures F_ij = -F_ji (Newton's Third Law)
+  double w_ij = 0.5;  // Default equal weighting if fix_region is not available
+  if (fix_region) {
+    double w_i = fix_region->get_lambda_cg(i);
+    double w_j = fix_region->get_lambda_cg(j);
+    w_ij = w_i * w_j;
+  }
+  
+  // Weight the atomistic force by w_ij
+  fpair *= w_ij;
+  energy *= w_ij;
+  
   // Compute force vector
   double r = sqrt(rsq);
   if (r > 0.0) {
@@ -823,7 +842,7 @@ void PairAdResS::compute_AT_force_pair(int i, int j, double rsq,
       f_atomistic[j][2] -= delz * fforce;
     }
     
-    // Tally energy and virial
+    // Tally energy and virial (already weighted by w_ij)
     if (eflag) {
       pair_atomistic->eng_vdwl += energy;
       // Note: eng_coul would be added here if coulombic interactions exist
@@ -898,6 +917,20 @@ void PairAdResS::compute_CG_force_pair(int i, int j, double rsq,
   double energy = pair_cg->single(i, j, itype, jtype, rsq,
                                    factor_coul, factor_lj, fpair);
   
+  // Apply symmetric pair-weighting: (1 - w_ij) where w_ij = w_i * w_j
+  // This ensures F_ij = -F_ji (Newton's Third Law)
+  double w_ij = 0.5;  // Default weighting if fix_region is not available
+  if (fix_region) {
+    double w_i = fix_region->get_lambda_cg(i);
+    double w_j = fix_region->get_lambda_cg(j);
+    w_ij = w_i * w_j;
+  }
+  double weight_cg = 1.0 - w_ij;
+  
+  // Weight the CG force by (1 - w_ij)
+  fpair *= weight_cg;
+  energy *= weight_cg;
+  
   // Compute force vector
   double r = sqrt(rsq);
   if (r > 0.0) {
@@ -913,7 +946,7 @@ void PairAdResS::compute_CG_force_pair(int i, int j, double rsq,
       f_cg[j][2] -= delz * fforce;
     }
     
-    // Tally energy and virial
+    // Tally energy and virial (already weighted by (1 - w_ij))
     if (eflag) {
       pair_cg->eng_vdwl += energy;
       // Note: eng_coul would be added here if coulombic interactions exist
@@ -940,18 +973,11 @@ void PairAdResS::compute_CG_force_pair(int i, int j, double rsq,
 
 void PairAdResS::interpolate_energy()
 {
-  if (!fix_region) {
-    // No lambda values - use equal weighting
-    eng_vdwl = 0.5 * (pair_atomistic->eng_vdwl + pair_cg->eng_vdwl);
-    eng_coul = 0.5 * (pair_atomistic->eng_coul + pair_cg->eng_coul);
-    return;
-  }
-  
-  // For now, use average lambda for energy interpolation
-  // Could be improved with per-atom lambda weighting
-  double lambda_avg = 0.5;
-  eng_vdwl = lambda_avg * pair_atomistic->eng_vdwl + (1.0 - lambda_avg) * pair_cg->eng_vdwl;
-  eng_coul = lambda_avg * pair_atomistic->eng_coul + (1.0 - lambda_avg) * pair_cg->eng_coul;
+  // NOTE: Energy is now weighted at the pair level in compute_AT_force_pair() and compute_CG_force_pair()
+  // using symmetric pair-weighting. The sub-styles already contain weighted energy values.
+  // This function simply adds them together.
+  eng_vdwl = pair_atomistic->eng_vdwl + pair_cg->eng_vdwl;
+  eng_coul = pair_atomistic->eng_coul + pair_cg->eng_coul;
 }
 
 /* ----------------------------------------------------------------------
@@ -960,18 +986,10 @@ void PairAdResS::interpolate_energy()
 
 void PairAdResS::interpolate_virial()
 {
-  if (!fix_region) {
-    // No lambda values - use equal weighting
-    for (int n = 0; n < 6; n++) {
-      virial[n] = 0.5 * (pair_atomistic->virial[n] + pair_cg->virial[n]);
-    }
-    return;
-  }
-  
-  // For now, use average lambda for virial interpolation
-  // Could be improved with per-atom lambda weighting
-  double lambda_avg = 0.5;
+  // NOTE: Virial is now weighted at the pair level in compute_AT_force_pair() and compute_CG_force_pair()
+  // using symmetric pair-weighting. The sub-styles already contain weighted virial values.
+  // This function simply adds them together.
   for (int n = 0; n < 6; n++) {
-    virial[n] = lambda_avg * pair_atomistic->virial[n] + (1.0 - lambda_avg) * pair_cg->virial[n];
+    virial[n] = pair_atomistic->virial[n] + pair_cg->virial[n];
   }
 }
